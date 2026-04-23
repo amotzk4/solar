@@ -1,0 +1,1601 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SolarEdge Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg: #0a0f1e;
+    --bg2: #111827;
+    --bg3: #1a2235;
+    --accent: #00e5a0;
+    --accent2: #00b4d8;
+    --text: #f0f4ff;
+    --text2: #8892a4;
+    --border: rgba(255,255,255,0.07);
+    --card-bg: rgba(255,255,255,0.04);
+    --font-main: 'Heebo', sans-serif;
+    --font-mono: 'Space Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-main);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Background grid */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,160,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,160,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 2.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .logo-area {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-icon {
+    width: 44px;
+    height: 44px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+  }
+
+  .logo-text h1 {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+
+  .logo-text p {
+    font-size: 12px;
+    color: var(--text2);
+    font-family: var(--font-mono);
+  }
+
+  /* Status badge */
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 100px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    transition: all 0.3s;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #888;
+    transition: background 0.3s;
+  }
+
+  .status-badge.active .status-dot {
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 2s infinite;
+  }
+
+  .status-badge.error .status-dot { background: #ff5c5c; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* Site info */
+  .site-info {
+    margin-bottom: 2rem;
+    padding: 1.25rem 1.5rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .site-info h2 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+
+  .site-info p {
+    font-size: 13px;
+    color: var(--text2);
+    margin-top: 4px;
+  }
+
+  .peak-power {
+    font-family: var(--font-mono);
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .peak-label {
+    font-size: 12px;
+    color: var(--text2);
+    text-align: center;
+  }
+
+  /* Metric cards */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 2rem;
+  }
+
+  .metric-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.25rem;
+    transition: border-color 0.3s, transform 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .metric-card:hover {
+    border-color: rgba(0,229,160,0.2);
+    transform: translateY(-2px);
+  }
+
+  .metric-card:hover::before { opacity: 1; }
+
+  .metric-icon {
+    font-size: 20px;
+    margin-bottom: 10px;
+    display: block;
+  }
+
+  .metric-label {
+    font-size: 11px;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+  }
+
+  .metric-value {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .metric-unit {
+    font-size: 12px;
+    color: var(--text2);
+    margin-top: 4px;
+  }
+
+  .metric-value.highlight { color: var(--accent); }
+
+  /* Live power card special */
+  .metric-card.live {
+    border-color: rgba(0,229,160,0.25);
+    background: rgba(0,229,160,0.05);
+  }
+
+  .metric-card.live::before { opacity: 1; }
+
+  /* Charts section */
+  .charts-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 12px;
+    margin-bottom: 2rem;
+  }
+
+  @media (max-width: 700px) {
+    .charts-row { grid-template-columns: 1fr; }
+  }
+
+  .chart-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+  }
+
+  .chart-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 1.25rem;
+  }
+
+  .chart-wrap {
+    position: relative;
+    width: 100%;
+    height: 220px;
+  }
+
+  /* Equipment section */
+  .equip-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .equip-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 1.25rem;
+  }
+
+  .equip-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+
+  .equip-item {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+  }
+
+  .equip-type {
+    font-size: 11px;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+  }
+
+  .equip-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .equip-serial {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text2);
+    margin-top: 4px;
+  }
+
+  .equip-status {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 100px;
+    background: rgba(0,229,160,0.1);
+    color: var(--accent);
+  }
+
+  /* Footer */
+  footer {
+    text-align: center;
+    color: var(--text2);
+    font-size: 12px;
+    padding: 1rem 0 2rem;
+    border-top: 1px solid var(--border);
+    margin-top: 1rem;
+  }
+
+  .refresh-btn {
+    background: transparent;
+    border: 1px solid rgba(0,229,160,0.4);
+    color: var(--accent);
+    padding: 8px 20px;
+    border-radius: 100px;
+    font-size: 13px;
+    font-family: var(--font-main);
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 2rem;
+  }
+
+  .refresh-btn:hover {
+    background: rgba(0,229,160,0.1);
+    border-color: var(--accent);
+  }
+
+  /* Loading skeleton */
+  .skeleton {
+    background: linear-gradient(90deg, var(--bg3) 25%, var(--bg2) 50%, var(--bg3) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 8px;
+    height: 24px;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* Error */
+  .error-box {
+    background: rgba(255,92,92,0.1);
+    border: 1px solid rgba(255,92,92,0.3);
+    color: #ff8080;
+    border-radius: 12px;
+    padding: 1rem 1.5rem;
+    font-size: 14px;
+    margin-bottom: 1rem;
+  }
+
+  /* Last updated */
+  .last-updated {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text2);
+  }
+
+  /* Settings panel */
+  .settings-panel {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .settings-panel h3 {
+    font-size: 13px;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 1rem;
+  }
+
+  .settings-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+  }
+
+  .settings-field { flex: 1; min-width: 200px; }
+
+  .settings-field label {
+    display: block;
+    font-size: 12px;
+    color: var(--text2);
+    margin-bottom: 6px;
+  }
+
+  .settings-field input {
+    width: 100%;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .settings-field input:focus {
+    border-color: rgba(0,229,160,0.4);
+  }
+
+  .connect-btn {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none;
+    color: #000;
+    padding: 9px 24px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: var(--font-main);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.2s;
+  }
+
+  .connect-btn:hover { opacity: 0.85; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="logo-area">
+      <div class="logo-icon">☀️</div>
+      <div class="logo-text">
+        <h1>Solar Monitor</h1>
+        <p>SolarEdge Dashboard</p>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <span class="last-updated" id="lastUpdated">לא עודכן עדיין</span>
+      <button class="refresh-btn" onclick="loadData()" style="margin-bottom:0;">↺ רענן</button>
+      <span class="status-badge" id="statusBadge">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">מתחבר...</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- Settings -->
+  <div class="settings-panel" id="settingsPanel">
+    <h3>הגדרות חיבור</h3>
+    <div class="settings-row">
+      <div class="settings-field">
+        <label>API Key</label>
+        <input type="text" id="apiKeyInput" placeholder="הכנס API Key..." />
+      </div>
+      <div class="settings-field">
+        <label>Site ID</label>
+        <input type="text" id="siteIdInput" placeholder="הכנס Site ID..." />
+      </div>
+      <button class="connect-btn" onclick="connectAndLoad()">התחבר</button>
+    </div>
+    <div class="settings-row" style="margin-top:12px;">
+      <div class="settings-field">
+        <label>תעריף מכירה לחברת חשמל (אג׳ לקוט"ש)</label>
+        <input type="number" id="sellRateInput" placeholder="48" step="0.01" />
+      </div>
+      <div class="settings-field">
+        <label>תעריף קנייה מהרשת (אג׳ לקוט"ש)</label>
+        <input type="number" id="buyRateInput" placeholder="54.51" step="0.01" />
+      </div>
+      <div class="settings-field">
+        <label>תאריך חיבור לחברת חשמל (למכירה)</label>
+        <input type="date" id="gridDateInput" />
+      </div>
+    </div>
+    <div class="settings-row" style="margin-top:12px;">
+      <div class="settings-field">
+        <label>עלות התקנת המערכת (₪)</label>
+        <input type="number" id="installCostInput" placeholder="0" step="100" />
+      </div>
+      <div class="settings-field">
+        <label>עמלה מערכתית חודשית (₪)</label>
+        <input type="number" id="monthlyFeeInput" placeholder="35.60" step="0.01" />
+      </div>
+      <div class="settings-field">
+        <label>כתובת המערכת (למזג אוויר)</label>
+        <div style="display:flex;gap:6px;">
+          <input type="text" id="addressInput" placeholder="ברוכין, ישראל" style="flex:1;" />
+          <button onclick="geocodeAddress()" style="background:rgba(0,229,160,0.15);border:1px solid rgba(0,229,160,0.3);color:var(--accent);padding:6px 10px;border-radius:8px;font-size:12px;cursor:pointer;white-space:nowrap;">אמת</button>
+        </div>
+        <div id="geoStatus" style="font-size:11px;margin-top:4px;color:var(--text2);"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="errorArea"></div>
+
+  <div id="mainContent" style="display:none;">
+    <!-- Site info -->
+    <div class="site-info" id="siteInfoCard">
+      <div>
+        <h2 id="siteName">—</h2>
+        <p id="siteAddress">—</p>
+        <p id="siteInstallDate" style="margin-top:4px;"></p>
+      </div>
+      <div style="text-align:center;">
+        <div class="peak-power" id="peakPower">—</div>
+        <div class="peak-label">הספק שיא (kWp)</div>
+      </div>
+    </div>
+
+    <!-- Live power + metrics -->
+    <div class="metrics-grid" id="metricsGrid">
+      <div class="metric-card live">
+        <span class="metric-icon">⚡</span>
+        <div class="metric-label">הספק עכשיו</div>
+        <div class="metric-value highlight" id="currentPower">—</div>
+        <div class="metric-unit">kW</div>
+      </div>
+      <div class="metric-card">
+        <span class="metric-icon">📅</span>
+        <div class="metric-label">ייצור היום</div>
+        <div class="metric-value" id="todayEnergy">—</div>
+        <div class="metric-unit" id="todayUnit">kWh</div>
+      </div>
+      <div class="metric-card">
+        <span class="metric-icon">📆</span>
+        <div class="metric-label">ייצור החודש</div>
+        <div class="metric-value" id="monthEnergy">—</div>
+        <div class="metric-unit" id="monthUnit">kWh</div>
+      </div>
+      <div class="metric-card">
+        <span class="metric-icon">🗓️</span>
+        <div class="metric-label">ייצור השנה</div>
+        <div class="metric-value" id="yearEnergy">—</div>
+        <div class="metric-unit" id="yearUnit">kWh</div>
+      </div>
+      <div class="metric-card">
+        <span class="metric-icon">🏆</span>
+        <div class="metric-label">סה"כ מצטבר</div>
+        <div class="metric-value" id="lifeEnergy">—</div>
+        <div class="metric-unit" id="lifeUnit">kWh</div>
+      </div>
+      <div class="metric-card" style="border-color:rgba(0,229,160,0.25);background:rgba(0,229,160,0.05);">
+        <span class="metric-icon">💰</span>
+        <div class="metric-label">הכנסה ממכירה מצטברת</div>
+        <div class="metric-value highlight" id="revenue">—</div>
+        <div class="metric-unit">₪ (לפי <span id="sellRateDisplay">48</span> אג׳/קוט"ש)</div>
+      </div>
+      <div class="metric-card">
+        <span class="metric-icon">📉</span>
+        <div class="metric-label">חיסכון מצטבר (צריכה עצמית)</div>
+        <div class="metric-value" id="savings">—</div>
+        <div class="metric-unit">₪ (לפי <span id="buyRateDisplay">54.51</span> אג׳/קוט"ש)</div>
+      </div>
+      <div class="metric-card">
+        <span class="metric-icon">🔁</span>
+        <div class="metric-label">יצוא לרשת (מצטבר)</div>
+        <div class="metric-value" id="exportKwh">—</div>
+        <div class="metric-unit" id="exportUnit">kWh</div>
+      </div>
+      <div class="metric-card">
+        <span class="metric-icon">🏠</span>
+        <div class="metric-label">צריכה עצמית (מצטבר)</div>
+        <div class="metric-value" id="selfKwh">—</div>
+        <div class="metric-unit" id="selfUnit">kWh</div>
+      </div>
+      <div class="metric-card" style="border-color:rgba(255,92,92,0.25);background:rgba(255,92,92,0.05);">
+        <span class="metric-icon">🧾</span>
+        <div class="metric-label">עמלות מערכתיות מצטברות</div>
+        <div class="metric-value" id="totalFees">—</div>
+        <div class="metric-unit">₪</div>
+      </div>
+    </div>
+
+    <!-- ROI / Profit card -->
+    <div id="roiCard" style="margin-bottom:2rem; background:var(--card-bg); border:1px solid var(--border); border-radius:16px; padding:1.5rem;">
+      <div style="font-size:13px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:1.25rem;">סיכום פיננסי</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:1.5rem;">
+        <div style="background:var(--color-background-secondary,rgba(255,255,255,0.06));border-radius:10px;padding:1rem;">
+          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">הכנסה + חיסכון</div>
+          <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;color:var(--accent);" id="totalBenefit">—</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:4px;">₪</div>
+        </div>
+        <div style="background:var(--color-background-secondary,rgba(255,255,255,0.06));border-radius:10px;padding:1rem;">
+          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">עלות מצטברת</div>
+          <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;color:#ff8080;" id="totalCost">—</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:4px;">₪ (התקנה + עמלות)</div>
+        </div>
+        <div style="background:var(--color-background-secondary,rgba(255,255,255,0.06));border-radius:10px;padding:1rem;">
+          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">רווח נטו</div>
+          <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;" id="netProfit">—</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:4px;">₪</div>
+        </div>
+        <div style="background:var(--color-background-secondary,rgba(255,255,255,0.06));border-radius:10px;padding:1rem;">
+          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">החזר השקעה</div>
+          <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;color:var(--accent2);" id="roiPct">—</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:4px;">% מהעלות הוחזר</div>
+        </div>
+      </div>
+      <!-- Progress bar -->
+      <div style="margin-bottom:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--text2);">
+        <span>התקדמות לbreak-even</span>
+        <span id="breakevenLabel">—</span>
+      </div>
+      <div style="background:rgba(255,255,255,0.07);border-radius:100px;height:10px;overflow:hidden;">
+        <div id="roiBar" style="height:100%;border-radius:100px;background:linear-gradient(90deg,var(--accent),var(--accent2));width:0%;transition:width 1s ease;"></div>
+      </div>
+      <div style="margin-top:8px;font-size:12px;color:var(--text2);" id="breakevenDate"></div>
+    </div>
+
+    <!-- Charts -->
+    <!-- Daily power flow chart (like monitoring portal) -->
+    <div class="chart-card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:1rem;">
+        <div class="chart-title" style="margin:0;">הספק יומי — ייצור מול צריכה</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="date" id="dailyFlowDate" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;" />
+          <button onclick="loadDailyFlow()" style="background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#000;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">טען</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:1rem;font-size:12px;">
+        <span style="display:flex;align-items:center;gap:6px;"><span style="width:12px;height:12px;border-radius:2px;background:rgba(0,229,160,0.7);display:inline-block;"></span>ייצור</span>
+        <span style="display:flex;align-items:center;gap:6px;"><span style="width:12px;height:12px;border-radius:2px;background:rgba(239,159,39,0.7);display:inline-block;"></span>צריכה</span>
+        <span style="display:flex;align-items:center;gap:6px;"><span style="width:12px;height:12px;border-radius:2px;background:rgba(0,180,216,0.5);display:inline-block;"></span>צריכה עצמית</span>
+        <span id="dailyScPct" style="color:var(--text2);margin-right:auto;"></span>
+      </div>
+      <div style="position:relative;width:100%;height:260px;">
+        <canvas id="dailyFlowChart" role="img" aria-label="גרף הספק יומי ייצור מול צריכה"></canvas>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">ייצור יומי — 30 ימים אחרונים</div>
+        <div class="chart-wrap">
+          <canvas id="energyChart" role="img" aria-label="גרף ייצור יומי 30 ימים"></canvas>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">ייצור חודשי — שנה אחרונה</div>
+        <div class="chart-wrap">
+          <canvas id="monthlyChart" role="img" aria-label="גרף ייצור חודשי"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel washing detection -->
+    <div class="chart-card" style="margin-bottom:2rem;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:1.25rem;">
+        <div class="chart-title" style="margin:0;">🧼 זיהוי צורך בשטיפת פנלים</div>
+        <button onclick="analyzeWashing()" style="background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#000;padding:6px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">נתח</button>
+      </div>
+      <div id="washingResult" style="font-size:13px;color:var(--text2);">לחץ "נתח" לבדיקה</div>
+      <div style="position:relative;width:100%;height:220px;margin-top:1rem;display:none;" id="washingChartWrap">
+        <canvas id="washingChart" role="img" aria-label="גרף ניתוח ירידה בתפוקה"></canvas>
+      </div>
+    </div>
+
+    <!-- Peak Power Analysis -->
+    <div class="chart-card" style="margin-bottom:2rem;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:1.25rem;">
+        <div class="chart-title" style="margin:0;">ניתוח הספק שיא</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <input type="date" id="peakStartDate" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;" />
+          <input type="date" id="peakEndDate" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;" />
+          <div style="display:flex;align-items:center;gap:4px;">
+            <span style="font-size:12px;color:var(--text2);">מגבלה:</span>
+            <input type="number" id="peakLimitInput" value="11.25" step="0.25" min="1" max="20" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:6px 8px;color:var(--text);font-size:12px;outline:none;width:70px;" />
+            <span style="font-size:12px;color:var(--text2);">kW</span>
+          </div>
+          <button onclick="loadPeakData()" style="background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#000;padding:6px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">נתח</button>
+        </div>
+      </div>
+      <div id="peakProgress" style="display:none;font-size:12px;color:var(--text2);margin-bottom:8px;"></div>
+      <div id="peakSummary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:1.25rem;"></div>
+      <div style="position:relative;width:100%;height:240px;">
+        <canvas id="peakChart" role="img" aria-label="גרף הספק שיא"></canvas>
+      </div>
+      <div id="peakHits" style="margin-top:1rem;font-size:13px;color:var(--text2);"></div>
+    </div>
+    <div class="equip-card">
+      <div class="equip-title">ציוד מותקן</div>
+      <div class="equip-grid" id="equipGrid">
+        <div class="equip-item">
+          <div class="equip-type">אינוורטר</div>
+          <div class="equip-name" id="invName">—</div>
+          <div class="equip-serial" id="invSerial">—</div>
+          <span class="equip-status">פעיל</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    Solar Monitor — מחובר ל-SolarEdge Monitoring API &nbsp;|&nbsp; נבנה עם ❤️
+  </footer>
+</div>
+
+<script>
+let API_KEY = '';
+let SITE_ID = '';
+let SELL_RATE = 48;
+let BUY_RATE = 54.51;
+let GRID_DATE = '2025-11-01';
+let INSTALL_COST = 0;
+let MONTHLY_FEE = 35.60;
+let LAT = 32.46;
+let LNG = 34.97;
+let dailyChart = null;
+let monthlyChart = null;
+
+const BASE = 'https://monitoringapi.solaredge.com';
+
+function calcROI(revenueILS, savingsILS, gridDateStr) {
+  const totalBenefit = revenueILS + savingsILS;
+
+  // Months since grid connection
+  const gridStart = new Date(gridDateStr || GRID_DATE);
+  const now = new Date();
+  const monthsConnected = Math.max(1,
+    (now.getFullYear() - gridStart.getFullYear()) * 12 +
+    (now.getMonth() - gridStart.getMonth())
+  );
+  // Months since installation (for fees)
+  const installStart = new Date(GRID_DATE);
+  installStart.setMonth(installStart.getMonth() - 3); // approx: installed 3 months before grid
+  const monthsInstalled = Math.max(1,
+    (now.getFullYear() - installStart.getFullYear()) * 12 +
+    (now.getMonth() - installStart.getMonth())
+  );
+
+  const totalFees = MONTHLY_FEE * monthsInstalled;
+  const totalCost = INSTALL_COST + totalFees;
+  const netProfit = totalBenefit - totalCost;
+
+  // ROI = כמה אחוז מעלות ההתקנה הכוללת כבר הוחזר
+  const roiPct = totalCost > 0 ? Math.min(999, (totalBenefit / totalCost * 100)) : 0;
+
+  document.getElementById('totalFees').textContent = fmt(totalFees, 0);
+  document.getElementById('totalBenefit').textContent = fmt(totalBenefit, 0);
+  document.getElementById('totalCost').textContent = fmt(totalCost, 0);
+
+  const profitEl = document.getElementById('netProfit');
+  profitEl.style.color = netProfit >= 0 ? 'var(--accent)' : '#ff8080';
+  profitEl.textContent = (netProfit >= 0 ? '+' : '-') + fmt(Math.abs(netProfit), 0);
+
+  // Only show ROI% and break-even if install cost was entered
+  if (INSTALL_COST > 0) {
+    document.getElementById('roiPct').textContent = fmt(roiPct, 1) + '%';
+    const barPct = Math.min(100, roiPct);
+    document.getElementById('roiBar').style.width = barPct + '%';
+
+    const monthlyBenefit = totalBenefit / Math.max(monthsConnected, 1);
+    const remaining = totalCost - totalBenefit;
+    if (remaining <= 0) {
+      document.getElementById('breakevenLabel').textContent = '✅ הושג!';
+      document.getElementById('breakevenDate').textContent = 'המערכת כבר החזירה את ההשקעה';
+    } else {
+      const monthsLeft = Math.ceil(remaining / Math.max(monthlyBenefit, 1));
+      const breakevenDate = new Date();
+      breakevenDate.setMonth(breakevenDate.getMonth() + monthsLeft);
+      const years = Math.floor(monthsLeft / 12);
+      const months = monthsLeft % 12;
+      const timeStr = years > 0 ? `${years} שנים ו-${months} חודשים` : `${months} חודשים`;
+      document.getElementById('breakevenLabel').textContent =
+        breakevenDate.toLocaleDateString('he-IL', { year: 'numeric', month: 'long' });
+      document.getElementById('breakevenDate').textContent =
+        `עוד ${timeStr} — לפי קצב של ~${fmt(monthlyBenefit, 0)} ₪/חודש`;
+    }
+  } else {
+    document.getElementById('roiPct').textContent = '—';
+    document.getElementById('roiBar').style.width = '0%';
+    document.getElementById('breakevenLabel').textContent = 'הזן עלות התקנה לחישוב';
+    document.getElementById('breakevenDate').textContent = '';
+  }
+}
+
+
+function fmt(n, dec = 1) {
+  if (n == null || isNaN(n)) return '—';
+  return Number(n).toLocaleString('he-IL', { maximumFractionDigits: dec });
+}
+
+// Smart energy display: auto-selects kWh or MWh
+function fmtEnergy(wh, elId, unitElId) {
+  const kwh = wh / 1000;
+  if (kwh >= 1000) {
+    document.getElementById(elId).textContent = fmt(kwh / 1000, 2);
+    document.getElementById(unitElId).textContent = 'MWh';
+  } else {
+    document.getElementById(elId).textContent = fmt(kwh, 1);
+    document.getElementById(unitElId).textContent = 'kWh';
+  }
+  return kwh;
+}
+
+function fmtDate(d) {
+  return d.toISOString().split('T')[0];
+}
+
+function setStatus(type, text) {
+  const badge = document.getElementById('statusBadge');
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  badge.className = 'status-badge ' + type;
+  txt.textContent = text;
+}
+
+function showError(msg) {
+  document.getElementById('errorArea').innerHTML =
+    `<div class="error-box">⚠️ ${msg}</div>`;
+}
+
+function clearError() {
+  document.getElementById('errorArea').innerHTML = '';
+}
+
+function connectAndLoad() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  const sid = document.getElementById('siteIdInput').value.trim();
+  if (!key || !sid) { showError('נא להזין API Key ו-Site ID'); return; }
+  API_KEY = key;
+  SITE_ID = sid;
+  const sellVal = parseFloat(document.getElementById('sellRateInput').value) || 48;
+  const buyVal = parseFloat(document.getElementById('buyRateInput').value) || 54.51;
+  const gridVal = document.getElementById('gridDateInput').value || '2025-11-01';
+  const installVal = parseFloat(document.getElementById('installCostInput').value) || 0;
+  const monthlyFeeVal = parseFloat(document.getElementById('monthlyFeeInput').value) || 35.60;
+  SELL_RATE = sellVal; BUY_RATE = buyVal; GRID_DATE = gridVal;
+  INSTALL_COST = installVal; MONTHLY_FEE = monthlyFeeVal;
+  localStorage.setItem('se_api_key', key); localStorage.setItem('se_site_id', sid);
+  localStorage.setItem('se_sell_rate', sellVal); localStorage.setItem('se_buy_rate', buyVal);
+  localStorage.setItem('se_grid_date', gridVal);
+  localStorage.setItem('se_install_cost', installVal); localStorage.setItem('se_monthly_fee', monthlyFeeVal);
+  document.getElementById('sellRateDisplay').textContent = sellVal;
+  document.getElementById('buyRateDisplay').textContent = buyVal;
+  loadData();
+}
+
+async function loadData() {
+  if (!API_KEY || !SITE_ID) return;
+  clearError();
+  setStatus('', 'טוען...');
+
+  try {
+    const [detRes, ovRes] = await Promise.all([
+      fetch(`${BASE}/site/${SITE_ID}/details?api_key=${API_KEY}`),
+      fetch(`${BASE}/site/${SITE_ID}/overview?api_key=${API_KEY}`)
+    ]);
+
+    if (!detRes.ok) throw new Error(`שגיאת API: ${detRes.status}`);
+
+    const det = await detRes.json();
+    const ov = await ovRes.json();
+    const site = det.details;
+    const overview = ov.overview;
+
+    // Site info
+    document.getElementById('siteName').textContent = site.name || 'האתר שלי';
+    document.getElementById('siteAddress').textContent =
+      [site.location?.address, site.location?.city, site.location?.country].filter(Boolean).join(', ');
+    document.getElementById('siteInstallDate').textContent =
+      site.installationDate ? `הותקן: ${site.installationDate}` : '';
+    document.getElementById('peakPower').textContent = fmt(site.peakPower, 2);
+
+    // Metrics
+    const cp = overview.currentPower?.power;
+    document.getElementById('currentPower').textContent = fmt(cp != null ? cp / 1000 : null, 2);
+    fmtEnergy(overview.lastDayData?.energy || 0, 'todayEnergy', 'todayUnit');
+    fmtEnergy(overview.lastMonthData?.energy || 0, 'monthEnergy', 'monthUnit');
+    fmtEnergy(overview.lastYearData?.energy || 0, 'yearEnergy', 'yearUnit');
+    const lifeKwh = fmtEnergy(overview.lifeTimeData?.energy || 0, 'lifeEnergy', 'lifeUnit');
+
+    // Status
+    const isActive = site.status === 'Active';
+    setStatus(isActive ? 'active' : 'error', isActive ? 'פעיל' : (site.status || 'לא ידוע'));
+
+    document.getElementById('mainContent').style.display = 'block';
+    document.getElementById('lastUpdated').textContent =
+      'עודכן: ' + new Date().toLocaleTimeString('he-IL');
+
+    // Equipment
+    loadEquipment();
+
+    // Calculate revenue & savings using real powerDetails data (FeedIn + SelfConsumption)
+    const today = new Date();
+    const rawInstall = site.installationDate ? site.installationDate.substring(0,10) : null;
+    const installDate = rawInstall || '2025-08-01';
+    const gridDate = GRID_DATE || '2025-11-01';
+
+    try {
+      // Fetch monthly powerDetails from grid connection onwards — gives FeedIn & SelfConsumption
+      const [detailsAfterRes, prodBeforeRes] = await Promise.all([
+        fetch(`${BASE}/site/${SITE_ID}/energyDetails?timeUnit=MONTH&startDate=${gridDate}&endDate=${fmtDate(today)}&api_key=${API_KEY}`),
+        fetch(`${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${installDate}&endDate=${gridDate}&api_key=${API_KEY}`)
+      ]);
+      const detailsAfter = await detailsAfterRes.json();
+      const prodBeforeData = await prodBeforeRes.json();
+
+      const meters = detailsAfter.energyDetails?.meters || [];
+      const feedInMeter     = meters.find(m => m.type === 'FeedIn');
+      const selfMeter       = meters.find(m => m.type === 'SelfConsumption');
+      const productionMeter = meters.find(m => m.type === 'Production');
+
+      // Sum FeedIn (exported to grid) — Wh → kWh
+      const totalExportKwh = feedInMeter
+        ? (feedInMeter.values || []).reduce((s, v) => s + (v.value || 0), 0) / 1000
+        : null;
+
+      // Sum SelfConsumption after grid
+      const selfAfterKwh = selfMeter
+        ? (selfMeter.values || []).reduce((s, v) => s + (v.value || 0), 0) / 1000
+        : null;
+
+      // Production before grid (all is self-consumption)
+      const beforeKwh = (prodBeforeData.energy?.values || [])
+        .reduce((s, v) => s + (v.value || 0), 0) / 1000;
+
+      if (totalExportKwh !== null && selfAfterKwh !== null) {
+        // We have real data from API
+        const totalSelfKwh = beforeKwh + selfAfterKwh;
+        const revenueILS = totalExportKwh * SELL_RATE / 100;
+        const savingsILS = totalSelfKwh * BUY_RATE / 100;
+        document.getElementById('revenue').textContent = fmt(revenueILS, 0);
+        document.getElementById('savings').textContent = fmt(savingsILS, 0);
+        fmtEnergy(totalExportKwh * 1000, 'exportKwh', 'exportUnit');
+        fmtEnergy(totalSelfKwh * 1000, 'selfKwh', 'selfUnit');
+        calcROI(revenueILS, savingsILS, gridDate);
+      } else {
+        // energyDetails not available — fallback to production ratio
+        // Try to infer SC% from productionMeter vs feedIn
+        const prodAfterKwh = productionMeter
+          ? (productionMeter.values || []).reduce((s, v) => s + (v.value || 0), 0) / 1000
+          : (lifeKwh - beforeKwh);
+        const exportKwh = totalExportKwh !== null ? totalExportKwh : prodAfterKwh * 0.79;
+        const selfKwh   = beforeKwh + (prodAfterKwh - exportKwh);
+        const revenueILS = exportKwh * SELL_RATE / 100;
+        const savingsILS = selfKwh * BUY_RATE / 100;
+        document.getElementById('revenue').textContent = fmt(revenueILS, 0) + '~';
+        document.getElementById('savings').textContent = fmt(savingsILS, 0) + '~';
+        fmtEnergy(exportKwh * 1000, 'exportKwh', 'exportUnit');
+        fmtEnergy(selfKwh  * 1000, 'selfKwh',   'selfUnit');
+        calcROI(revenueILS, savingsILS, gridDate);
+      }
+
+    } catch(e) {
+      console.error('energy calc error:', e);
+      document.getElementById('revenue').textContent = '—';
+      document.getElementById('savings').textContent = '—';
+    }
+
+    // Daily chart
+    const start = new Date(today); start.setDate(today.getDate() - 29);
+    const energyRes = await fetch(
+      `${BASE}/site/${SITE_ID}/energy?timeUnit=DAY&startDate=${fmtDate(start)}&endDate=${fmtDate(today)}&api_key=${API_KEY}`
+    );
+    const energyData = await energyRes.json();
+    renderDailyChart(energyData.energy?.values || []);
+
+    // Monthly chart
+    const yearStart = new Date(today); yearStart.setMonth(today.getMonth() - 11); yearStart.setDate(1);
+    const monthRes = await fetch(
+      `${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${fmtDate(yearStart)}&endDate=${fmtDate(today)}&api_key=${API_KEY}`
+    );
+    const monthData = await monthRes.json();
+    renderMonthlyChart(monthData.energy?.values || []);
+
+    // Auto-load today's daily flow chart
+    loadDailyFlow();
+
+  } catch (e) {
+    showError(e.message);
+    setStatus('error', 'שגיאה');
+  }
+}
+
+async function loadEquipment() {
+  try {
+    const res = await fetch(`${BASE}/site/${SITE_ID}/inventory?api_key=${API_KEY}`);
+    const data = await res.json();
+    const inv = data.Inventory;
+    if (!inv) return;
+    const grid = document.getElementById('equipGrid');
+    let html = '';
+
+    (inv.inverters || []).forEach(i => {
+      html += `<div class="equip-item">
+        <div class="equip-type">אינוורטר</div>
+        <div class="equip-name">${i.model || i.name || '—'}</div>
+        <div class="equip-serial">${i.SN || ''}</div>
+        <span class="equip-status">${i.connectedOptimizers ? i.connectedOptimizers + ' אופטימייזרים' : 'פעיל'}</span>
+      </div>`;
+    });
+
+    (inv.batteries || []).forEach(b => {
+      html += `<div class="equip-item">
+        <div class="equip-type">סוללה</div>
+        <div class="equip-name">${b.model || b.name || '—'}</div>
+        <div class="equip-serial">${b.SN || ''}</div>
+        <span class="equip-status">פעיל</span>
+      </div>`;
+    });
+
+    (inv.meters || []).forEach(m => {
+      html += `<div class="equip-item">
+        <div class="equip-type">מונה</div>
+        <div class="equip-name">${m.name || '—'}</div>
+        <div class="equip-serial">${m.SN || m.connectedTo || ''}</div>
+        <span class="equip-status">פעיל</span>
+      </div>`;
+    });
+
+    if (html) grid.innerHTML = html;
+  } catch (e) { /* silent */ }
+}
+
+function renderDailyChart(values) {
+  const labels = values.map(v => {
+    const d = new Date(v.date);
+    return `${d.getDate()}/${d.getMonth() + 1}`;
+  });
+  const data = values.map(v => v.value != null ? Math.round(v.value / 100) / 10 : 0);
+
+  if (dailyChart) dailyChart.destroy();
+  const ctx = document.getElementById('energyChart').getContext('2d');
+  dailyChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'kWh',
+        data,
+        backgroundColor: 'rgba(0,229,160,0.6)',
+        borderColor: 'rgba(0,229,160,1)',
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          ticks: { color: '#8892a4', font: { size: 10 }, maxTicksLimit: 12, autoSkip: true },
+          grid: { color: 'rgba(255,255,255,0.04)' }
+        },
+        y: {
+          ticks: { color: '#8892a4', font: { size: 10 } },
+          grid: { color: 'rgba(255,255,255,0.06)' },
+          title: { display: true, text: 'kWh', color: '#8892a4', font: { size: 10 } }
+        }
+      }
+    }
+  });
+}
+
+function renderMonthlyChart(values) {
+  const labels = values.map(v => {
+    const d = new Date(v.date);
+    return d.toLocaleString('he-IL', { month: 'short' });
+  });
+  const data = values.map(v => v.value != null ? Math.round(v.value / 100) / 10 : 0);
+
+  if (monthlyChart) monthlyChart.destroy();
+  const ctx = document.getElementById('monthlyChart').getContext('2d');
+  monthlyChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'kWh',
+        data,
+        backgroundColor: 'rgba(0,180,216,0.6)',
+        borderColor: 'rgba(0,180,216,1)',
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          ticks: { color: '#8892a4', font: { size: 10 } },
+          grid: { color: 'rgba(255,255,255,0.04)' }
+        },
+        y: {
+          ticks: { color: '#8892a4', font: { size: 10 } },
+          grid: { color: 'rgba(255,255,255,0.06)' },
+          title: { display: true, text: 'kWh', color: '#8892a4', font: { size: 10 } }
+        }
+      }
+    }
+  });
+}
+
+// Load saved settings
+window.onload = () => {
+  const savedKey = localStorage.getItem('se_api_key') || 'FYDRCJEV70LFKPQ6QZURWWKMPFTRECH3';
+  const savedId = localStorage.getItem('se_site_id') || '4647217';
+  const savedSell = parseFloat(localStorage.getItem('se_sell_rate')) || 48;
+  const savedBuy = parseFloat(localStorage.getItem('se_buy_rate')) || 54.51;
+  const savedGrid = localStorage.getItem('se_grid_date') || '2025-11-01';
+  const savedInstall = parseFloat(localStorage.getItem('se_install_cost')) || 0;
+  const savedMonthlyFee = parseFloat(localStorage.getItem('se_monthly_fee')) || 35.60;
+  const savedAddress = localStorage.getItem('se_address') || 'ברוכין, ישראל';
+  LAT = parseFloat(localStorage.getItem('se_lat')) || 32.46;
+  LNG = parseFloat(localStorage.getItem('se_lng')) || 34.97;
+  document.getElementById('apiKeyInput').value = savedKey;
+  document.getElementById('siteIdInput').value = savedId;
+  document.getElementById('sellRateInput').value = savedSell;
+  document.getElementById('buyRateInput').value = savedBuy;
+  document.getElementById('gridDateInput').value = savedGrid;
+  document.getElementById('installCostInput').value = savedInstall || '';
+  document.getElementById('monthlyFeeInput').value = savedMonthlyFee;
+  document.getElementById('addressInput').value = savedAddress;
+  document.getElementById('geoStatus').textContent = `📍 ${savedAddress} (${LAT.toFixed(3)}, ${LNG.toFixed(3)})`;
+  API_KEY = savedKey;
+  SITE_ID = savedId;
+  SELL_RATE = savedSell;
+  BUY_RATE = savedBuy;
+  GRID_DATE = savedGrid;
+  INSTALL_COST = savedInstall;
+  MONTHLY_FEE = savedMonthlyFee;
+  document.getElementById('sellRateDisplay').textContent = savedSell;
+  document.getElementById('buyRateDisplay').textContent = savedBuy;
+  // Set default peak analysis dates: last 30 days
+  const defEnd = new Date();
+  const defStart = new Date(); defStart.setDate(defEnd.getDate() - 30);
+  document.getElementById('peakStartDate').value = fmtDate(defStart);
+  document.getElementById('peakEndDate').value = fmtDate(defEnd);
+  // Set default daily flow date: today
+  document.getElementById('dailyFlowDate').value = fmtDate(new Date());
+  if (API_KEY && SITE_ID) loadData();
+};
+
+async function geocodeAddress() {
+  const address = document.getElementById('addressInput').value.trim();
+  const statusEl = document.getElementById('geoStatus');
+  if (!address) return;
+  statusEl.textContent = 'מחפש...';
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`,
+      { headers: { 'Accept-Language': 'he' } }
+    );
+    const data = await res.json();
+    if (!data.length) {
+      statusEl.textContent = '❌ לא נמצאה כתובת — נסה שוב';
+      statusEl.style.color = '#ff8080';
+      return;
+    }
+    LAT = parseFloat(data[0].lat);
+    LNG = parseFloat(data[0].lon);
+    localStorage.setItem('se_lat', LAT);
+    localStorage.setItem('se_lng', LNG);
+    localStorage.setItem('se_address', address);
+    statusEl.textContent = `✅ ${data[0].display_name.split(',').slice(0,2).join(',')} (${LAT.toFixed(3)}, ${LNG.toFixed(3)})`;
+    statusEl.style.color = 'var(--accent)';
+  } catch(e) {
+    statusEl.textContent = '❌ שגיאה בחיפוש כתובת';
+    statusEl.style.color = '#ff8080';
+  }
+}
+
+let peakChart = null;
+let dailyFlowChart = null;
+let washingChart = null;
+
+async function loadDailyFlow() {
+  if (!API_KEY || !SITE_ID) return;
+  const dateVal = document.getElementById('dailyFlowDate').value;
+  if (!dateVal) return;
+
+  try {
+    const [powerRes, consumptionRes] = await Promise.all([
+      fetch(`${BASE}/site/${SITE_ID}/power?startTime=${dateVal}%2000:00:00&endTime=${dateVal}%2023:59:59&api_key=${API_KEY}`),
+      fetch(`${BASE}/site/${SITE_ID}/powerDetails?startTime=${dateVal}%2000:00:00&endTime=${dateVal}%2023:59:59&api_key=${API_KEY}`)
+    ]);
+    const powerData = await powerRes.json();
+    const detailData = await consumptionRes.json();
+
+    const prodValues = (powerData.power?.values || []).filter(v => v.value != null);
+    const meters = detailData.powerDetails?.meters || [];
+    const consumptionMeter = meters.find(m => m.type === 'Consumption');
+    const selfMeter = meters.find(m => m.type === 'SelfConsumption');
+    const consumptionValues = consumptionMeter?.values?.filter(v => v.value != null) || [];
+    const selfValues = selfMeter?.values?.filter(v => v.value != null) || [];
+
+    const labels = prodValues.map(v => {
+      const d = new Date(v.date);
+      return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    });
+    const prodKw = prodValues.map(v => Math.round(v.value / 100) / 10);
+    const consKw = consumptionValues.map(v => Math.round((v.value || 0) / 100) / 10);
+    const selfKw = selfValues.map(v => Math.round((v.value || 0) / 100) / 10);
+
+    // Calc daily self consumption %
+    const totalProd = prodKw.reduce((s, v) => s + v, 0);
+    const totalSelf = selfKw.length > 0 ? selfKw.reduce((s, v) => s + v, 0) : null;
+    if (totalSelf != null && totalProd > 0) {
+      const pct = Math.round(totalSelf / totalProd * 100);
+      document.getElementById('dailyScPct').textContent = `צריכה עצמית: ${pct}%`;
+    } else {
+      document.getElementById('dailyScPct').textContent = '';
+    }
+
+    if (dailyFlowChart) dailyFlowChart.destroy();
+    const ctx = document.getElementById('dailyFlowChart').getContext('2d');
+    const datasets = [
+      {
+        label: 'ייצור',
+        data: prodKw,
+        borderColor: 'rgba(0,229,160,0.9)',
+        backgroundColor: 'rgba(0,229,160,0.25)',
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: true,
+        tension: 0.4,
+        order: 3,
+      }
+    ];
+    if (selfKw.length > 0) {
+      datasets.push({
+        label: 'צריכה עצמית',
+        data: selfKw,
+        borderColor: 'rgba(0,180,216,0.7)',
+        backgroundColor: 'rgba(0,180,216,0.2)',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: true,
+        tension: 0.4,
+        order: 1,
+      });
+    }
+    if (consKw.length > 0) {
+      datasets.push({
+        label: 'צריכה',
+        data: consKw,
+        borderColor: 'rgba(239,159,39,0.9)',
+        backgroundColor: 'rgba(239,159,39,0.15)',
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: true,
+        tension: 0.4,
+        order: 2,
+      });
+    }
+
+    dailyFlowChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#8892a4', font: { size: 10 }, maxTicksLimit: 12 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+          y: { ticks: { color: '#8892a4', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.06)' }, title: { display: true, text: 'kW', color: '#8892a4', font: { size: 10 } }, min: 0 }
+        }
+      }
+    });
+  } catch(e) {
+    console.error('daily flow error:', e);
+  }
+}
+
+async function analyzeWashing() {
+  if (!API_KEY || !SITE_ID) return;
+  const resultEl = document.getElementById('washingResult');
+  resultEl.innerHTML = '<span style="color:var(--text2);">מנתח נתונים...</span>';
+
+  try {
+    // Fetch last 90 days of daily energy + weather from Open-Meteo (free, no key needed)
+    const today = new Date();
+    const start90 = new Date(today); start90.setDate(today.getDate() - 89);
+
+    const [energyRes, weatherRes] = await Promise.all([
+      fetch(`${BASE}/site/${SITE_ID}/energy?timeUnit=DAY&startDate=${fmtDate(start90)}&endDate=${fmtDate(today)}&api_key=${API_KEY}`),
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LNG}&daily=sunshine_duration,precipitation_sum&timezone=Asia/Jerusalem&start_date=${fmtDate(start90)}&end_date=${fmtDate(today)}`)
+    ]);
+    const energyData = await energyRes.json();
+    const weatherData = await weatherRes.json();
+
+    const energyValues = energyData.energy?.values || [];
+    const sunshineArr = weatherData.daily?.sunshine_duration || [];
+    const precipArr = weatherData.daily?.precipitation_sum || [];
+    const weatherDates = weatherData.daily?.time || [];
+
+    // Build map: date → { kwh, sunshine_hours, rain }
+    const days = energyValues.map(v => {
+      const d = v.date.substring(0, 10);
+      const wi = weatherDates.indexOf(d);
+      return {
+        date: d,
+        kwh: (v.value || 0) / 1000,
+        sunshine: wi >= 0 ? sunshineArr[wi] / 3600 : null, // seconds → hours
+        rain: wi >= 0 ? precipArr[wi] : null,
+      };
+    }).filter(d => d.sunshine !== null && d.sunshine > 5); // only sunny days (>5h sun)
+
+    if (days.length < 14) {
+      resultEl.innerHTML = '<span style="color:#ff8080;">אין מספיק ימים שמשיים לניתוח (צריך לפחות 14)</span>';
+      return;
+    }
+
+    // Normalize: efficiency = kWh per sunshine hour
+    days.forEach(d => { d.efficiency = d.kwh / d.sunshine; });
+
+    // Rolling 7-day average efficiency
+    const rolling = days.map((d, i) => {
+      if (i < 6) return null;
+      const window = days.slice(i - 6, i + 1);
+      return window.reduce((s, w) => s + w.efficiency, 0) / 7;
+    }).filter(v => v !== null);
+
+    // Baseline = average of first 2 weeks
+    const baseline = days.slice(0, 14).reduce((s, d) => s + d.efficiency, 0) / 14;
+
+    // Find last rain (natural wash)
+    const lastRainIdx = [...days].reverse().findIndex(d => d.rain > 2);
+    const lastRainDate = lastRainIdx >= 0 ? days[days.length - 1 - lastRainIdx].date : null;
+    const daysSinceRain = lastRainIdx >= 0 ? lastRainIdx : 999;
+
+    // Current efficiency (last 7 sunny days)
+    const recent = days.slice(-7);
+    const recentEff = recent.reduce((s, d) => s + d.efficiency, 0) / recent.length;
+    const dropPct = Math.round((1 - recentEff / baseline) * 100);
+
+    // Verdict
+    let verdict = '';
+    let color = 'var(--accent)';
+    if (dropPct >= 15 && daysSinceRain > 14) {
+      color = '#ff8080';
+      verdict = `⚠️ ירידה של ${dropPct}% ביעילות יחסית לבסיס — מומלץ לשטוף פנלים!`;
+    } else if (dropPct >= 8) {
+      color = '#EF9F27';
+      verdict = `🟡 ירידה של ${dropPct}% — כדאי לשקול שטיפה בקרוב`;
+    } else if (dropPct < 0) {
+      verdict = `✅ הביצועים טובים מהרגיל (${Math.abs(dropPct)}% מעל הבסיס)`;
+    } else {
+      verdict = `✅ הביצועים תקינים (ירידה של ${dropPct}% בלבד)`;
+    }
+
+    const rainInfo = lastRainDate
+      ? `גשם אחרון: ${lastRainDate} (לפני ${daysSinceRain} ימים)`
+      : 'לא נרשם גשם ב-90 הימים האחרונים';
+
+    resultEl.innerHTML = `
+      <div style="font-size:15px;font-weight:500;color:${color};margin-bottom:10px;">${verdict}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px;">
+        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:0.75rem;">
+          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">יעילות בסיס</div>
+          <div style="font-family:var(--font-mono);font-size:18px;font-weight:700;">${fmt(baseline, 2)} <span style="font-size:12px;font-weight:400;color:var(--text2);">kWh/שעת שמש</span></div>
+        </div>
+        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:0.75rem;">
+          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">יעילות נוכחית</div>
+          <div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:${color};">${fmt(recentEff, 2)} <span style="font-size:12px;font-weight:400;color:var(--text2);">kWh/שעת שמש</span></div>
+        </div>
+        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:0.75rem;">
+          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">ימים שמשיים שנותחו</div>
+          <div style="font-family:var(--font-mono);font-size:18px;font-weight:700;">${days.length}</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:0.75rem;">
+          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">גשם אחרון</div>
+          <div style="font-size:13px;font-weight:500;color:var(--accent2);">${rainInfo}</div>
+        </div>
+      </div>
+    `;
+
+    // Efficiency trend chart
+    const chartLabels = days.slice(6).map(d => d.date.substring(5));
+    document.getElementById('washingChartWrap').style.display = 'block';
+    if (washingChart) washingChart.destroy();
+    const wctx = document.getElementById('washingChart').getContext('2d');
+    washingChart = new Chart(wctx, {
+      type: 'line',
+      data: {
+        labels: chartLabels,
+        datasets: [
+          {
+            label: 'יעילות (7 ימים)',
+            data: rolling.map(v => Math.round(v * 100) / 100),
+            borderColor: 'rgba(0,180,216,0.9)',
+            backgroundColor: 'rgba(0,180,216,0.1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            fill: true,
+            tension: 0.4,
+          },
+          {
+            label: 'בסיס',
+            data: chartLabels.map(() => Math.round(baseline * 100) / 100),
+            borderColor: 'rgba(0,229,160,0.6)',
+            borderWidth: 1.5,
+            borderDash: [5, 3],
+            pointRadius: 0,
+            fill: false,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#8892a4', font: { size: 10 }, maxTicksLimit: 12, autoSkip: true }, grid: { color: 'rgba(255,255,255,0.04)' } },
+          y: { ticks: { color: '#8892a4', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.06)' }, title: { display: true, text: 'kWh/שעת שמש', color: '#8892a4', font: { size: 10 } } }
+        }
+      }
+    });
+
+  } catch(e) {
+    resultEl.innerHTML = `<span style="color:#ff8080;">שגיאה: ${e.message}</span>`;
+    console.error(e);
+  }
+}
+
+async function loadPeakData() {
+  if (!API_KEY || !SITE_ID) { showError('נא להתחבר תחילה'); return; }
+  const startDate = document.getElementById('peakStartDate').value;
+  const endDate = document.getElementById('peakEndDate').value;
+  const PEAK_LIMIT = parseFloat(document.getElementById('peakLimitInput').value) || 11.25;
+  if (!startDate || !endDate) return;
+
+  const progressEl = document.getElementById('peakProgress');
+  progressEl.style.display = 'block';
+  document.getElementById('peakSummary').innerHTML = '';
+  document.getElementById('peakHits').innerHTML = '';
+  if (peakChart) { peakChart.destroy(); peakChart = null; }
+
+  // Split date range into monthly chunks (API limit = 1 month per request)
+  const chunks = [];
+  let cursor = new Date(startDate);
+  const endDt = new Date(endDate);
+  while (cursor <= endDt) {
+    const chunkEnd = new Date(cursor);
+    chunkEnd.setMonth(chunkEnd.getMonth() + 1);
+    chunkEnd.setDate(chunkEnd.getDate() - 1);
+    chunks.push({
+      start: fmtDate(cursor),
+      end: fmtDate(chunkEnd > endDt ? endDt : chunkEnd)
+    });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+
+  progressEl.textContent = `טוען ${chunks.length} חודשים...`;
+
+  let allValues = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const { start, end } = chunks[i];
+    progressEl.textContent = `טוען חודש ${i + 1} מתוך ${chunks.length} (${start} → ${end})...`;
+    try {
+      const res = await fetch(
+        `${BASE}/site/${SITE_ID}/power?startTime=${start}%2000:00:00&endTime=${end}%2023:59:59&api_key=${API_KEY}`
+      );
+      const data = await res.json();
+      const vals = (data.power?.values || []).filter(v => v.value != null);
+      allValues = allValues.concat(vals);
+    } catch(e) {
+      progressEl.textContent += ` — שגיאה בחודש זה`;
+    }
+  }
+
+  progressEl.style.display = 'none';
+
+  if (allValues.length === 0) {
+    document.getElementById('peakSummary').innerHTML = '<div style="color:#ff8080;font-size:13px;">לא נמצאו נתונים לתקופה זו</div>';
+    return;
+  }
+
+  const limitW = PEAK_LIMIT * 1000;
+  const maxW = Math.max(...allValues.map(v => v.value));
+  const maxKw = maxW / 1000;
+  const hitsAbove = allValues.filter(v => v.value >= limitW);
+  const hitsNear  = allValues.filter(v => v.value >= limitW * 0.9 && v.value < limitW);
+
+  // Summary cards
+  document.getElementById('peakSummary').innerHTML = `
+    <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:0.875rem;">
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">הספק מקסימלי</div>
+      <div style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:${maxKw >= PEAK_LIMIT ? '#ff8080' : 'var(--accent)'};">${fmt(maxKw, 2)} kW</div>
+    </div>
+    <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:0.875rem;">
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">חריגות מ-${PEAK_LIMIT} kW</div>
+      <div style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:${hitsAbove.length > 0 ? '#ff8080' : 'var(--accent)'};">${hitsAbove.length} פעמים</div>
+    </div>
+    <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:0.875rem;">
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">קרוב למגבלה (90%+)</div>
+      <div style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:#EF9F27;">${hitsNear.length} פעמים</div>
+    </div>
+    <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:0.875rem;">
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">נקודות נמדדו</div>
+      <div style="font-family:var(--font-mono);font-size:20px;font-weight:700;">${allValues.length.toLocaleString()}</div>
+    </div>
+  `;
+
+  // Chart — subsample if too many points
+  const step = Math.max(1, Math.floor(allValues.length / 800));
+  const sampled = allValues.filter((_, i) => i % step === 0);
+  const labels = sampled.map(v => {
+    const d = new Date(v.date);
+    return `${d.getDate()}/${d.getMonth()+1} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  });
+  const dataKw = sampled.map(v => Math.round(v.value / 100) / 10);
+
+  const ctx = document.getElementById('peakChart').getContext('2d');
+  peakChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'הספק (kW)',
+          data: dataKw,
+          borderColor: 'rgba(0,229,160,0.8)',
+          backgroundColor: 'rgba(0,229,160,0.1)',
+          borderWidth: 1,
+          pointRadius: 0,
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: `מגבלה ${PEAK_LIMIT} kW`,
+          data: labels.map(() => PEAK_LIMIT),
+          borderColor: 'rgba(255,92,92,0.8)',
+          borderWidth: 1.5,
+          borderDash: [6, 3],
+          pointRadius: 0,
+          fill: false,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8892a4', font: { size: 10 }, maxTicksLimit: 12, autoSkip: true }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#8892a4', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.06)' }, title: { display: true, text: 'kW', color: '#8892a4', font: { size: 10 } } }
+      }
+    }
+  });
+
+  // Hits list
+  if (hitsAbove.length > 0) {
+    const hitList = hitsAbove.slice(0, 15).map(h =>
+      `<span style="background:rgba(255,92,92,0.15);border-radius:6px;padding:3px 8px;margin:2px;display:inline-block;">${h.date}: ${fmt(h.value/1000,2)} kW</span>`
+    ).join('');
+    const more = hitsAbove.length > 15 ? `<div style="margin-top:6px;color:var(--text2);">...ועוד ${hitsAbove.length - 15} חריגות נוספות</div>` : '';
+    document.getElementById('peakHits').innerHTML =
+      `<div style="color:#ff8080;margin-bottom:6px;">⚠️ חריגות מ-${PEAK_LIMIT} kW:</div>${hitList}${more}`;
+  } else {
+    document.getElementById('peakHits').innerHTML =
+      `<div style="color:var(--accent);">✅ לא נמצאו חריגות מ-${PEAK_LIMIT} kW בתקופה זו</div>`;
+  }
+}
+</script>
+</body>
+</html>
