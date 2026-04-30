@@ -609,6 +609,12 @@
       </div>
     </div>
 
+    <!-- Top 3 production days -->
+    <div class="chart-card" style="margin-bottom:2rem;">
+      <div class="chart-title">🥇 3 ימי הייצור הטובים ביותר</div>
+      <div id="topDaysContent" style="font-size:13px;color:var(--text2);">טוען...</div>
+    </div>
+
     <!-- ROI / Profit card -->
     <div id="roiCard" style="margin-bottom:2rem; background:var(--card-bg); border:1px solid var(--border); border-radius:16px; padding:1.5rem;">
       <div style="font-size:13px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:1.25rem;">סיכום פיננסי</div>
@@ -920,64 +926,70 @@ async function loadData() {
     // Equipment
     loadEquipment();
 
-    // Calculate revenue & savings using real powerDetails data (FeedIn + SelfConsumption)
+    // Calculate revenue & savings using powerDetails (FeedIn + SelfConsumption)
+    // energyDetails returns 400 — using powerDetails monthly chunks instead
     const today = new Date();
     const rawInstall = site.installationDate ? site.installationDate.substring(0,10) : null;
     const installDate = rawInstall || '2025-08-01';
     const gridDate = GRID_DATE || '2025-11-01';
 
     try {
-      // Fetch monthly powerDetails from grid connection onwards — gives FeedIn & SelfConsumption
-      const [detailsAfterRes, prodBeforeRes] = await Promise.all([
-        fetch(`${BASE}/site/${SITE_ID}/energyDetails?timeUnit=MONTH&startDate=${gridDate}&endDate=${fmtDate(today)}&api_key=${API_KEY}`),
-        fetch(`${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${installDate}&endDate=${gridDate}&api_key=${API_KEY}`)
-      ]);
-      const detailsAfter = await detailsAfterRes.json();
+      // Production before grid — all self-consumption, no selling
+      const prodBeforeRes = await fetch(
+        `${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${installDate}&endDate=${gridDate}&api_key=${API_KEY}`
+      );
       const prodBeforeData = await prodBeforeRes.json();
-
-      const meters = detailsAfter.energyDetails?.meters || [];
-      const feedInMeter     = meters.find(m => m.type === 'FeedIn');
-      const selfMeter       = meters.find(m => m.type === 'SelfConsumption');
-      const productionMeter = meters.find(m => m.type === 'Production');
-
-      // Sum FeedIn (exported to grid) — Wh → kWh
-      const totalExportKwh = feedInMeter
-        ? (feedInMeter.values || []).reduce((s, v) => s + (v.value || 0), 0) / 1000
-        : null;
-
-      // Sum SelfConsumption after grid
-      const selfAfterKwh = selfMeter
-        ? (selfMeter.values || []).reduce((s, v) => s + (v.value || 0), 0) / 1000
-        : null;
-
-      // Production before grid (all is self-consumption)
       const beforeKwh = (prodBeforeData.energy?.values || [])
         .reduce((s, v) => s + (v.value || 0), 0) / 1000;
 
-      if (totalExportKwh !== null && selfAfterKwh !== null) {
-        // We have real data from API
-        const totalSelfKwh = beforeKwh + selfAfterKwh;
+      // Build monthly chunks from gridDate to today
+      const chunks = [];
+      let cursor = new Date(gridDate);
+      while (cursor <= today) {
+        const chunkEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0); // last day of month
+        chunks.push({ start: fmtDate(cursor), end: fmtDate(chunkEnd > today ? today : chunkEnd) });
+        cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+      }
+
+      // Fetch powerDetails for each month — W at 15-min intervals
+      let totalFeedInWh = 0, totalSelfWh = 0;
+      await Promise.all(chunks.map(async ({ start, end }) => {
+        try {
+          const r = await fetch(
+            `${BASE}/site/${SITE_ID}/powerDetails?startTime=${start}%2000:00:00&endTime=${end}%2023:59:59&api_key=${API_KEY}`
+          );
+          const d = await r.json();
+          const meters = d.powerDetails?.meters || [];
+          const feedIn = meters.find(m => m.type === 'FeedIn');
+          const self   = meters.find(m => m.type === 'SelfConsumption');
+          // W × 0.25h = Wh per 15-min interval
+          if (feedIn) totalFeedInWh += (feedIn.values || []).reduce((s, v) => s + (v.value || 0) * 0.25, 0);
+          if (self)   totalSelfWh   += (self.values   || []).reduce((s, v) => s + (v.value || 0) * 0.25, 0);
+        } catch(e) { /* skip */ }
+      }));
+
+      const totalExportKwh = totalFeedInWh / 1000;
+      const totalSelfKwh   = beforeKwh + (totalSelfWh / 1000);
+
+      if (totalExportKwh > 0 || totalSelfKwh > 0) {
         const revenueILS = totalExportKwh * SELL_RATE / 100;
         const savingsILS = totalSelfKwh * BUY_RATE / 100;
         document.getElementById('revenue').textContent = fmt(revenueILS, 0);
         document.getElementById('savings').textContent = fmt(savingsILS, 0);
         fmtEnergy(totalExportKwh * 1000, 'exportKwh', 'exportUnit');
-        fmtEnergy(totalSelfKwh * 1000, 'selfKwh', 'selfUnit');
+        fmtEnergy(totalSelfKwh   * 1000, 'selfKwh',   'selfUnit');
         calcROI(revenueILS, savingsILS, gridDate);
       } else {
-        // energyDetails not available — fallback to production ratio
-        // Try to infer SC% from productionMeter vs feedIn
-        const prodAfterKwh = productionMeter
-          ? (productionMeter.values || []).reduce((s, v) => s + (v.value || 0), 0) / 1000
-          : (lifeKwh - beforeKwh);
-        const exportKwh = totalExportKwh !== null ? totalExportKwh : prodAfterKwh * 0.79;
-        const selfKwh   = beforeKwh + (prodAfterKwh - exportKwh);
-        const revenueILS = exportKwh * SELL_RATE / 100;
+        // Fallback — no meter data
+        const prodAfterKwh = lifeKwh - beforeKwh;
+        const expKwh  = prodAfterKwh * 0.79;
+        const selfKwh = beforeKwh + prodAfterKwh * 0.21;
+        const revenueILS = expKwh  * SELL_RATE / 100;
         const savingsILS = selfKwh * BUY_RATE / 100;
         document.getElementById('revenue').textContent = fmt(revenueILS, 0) + '~';
         document.getElementById('savings').textContent = fmt(savingsILS, 0) + '~';
-        fmtEnergy(exportKwh * 1000, 'exportKwh', 'exportUnit');
-        fmtEnergy(selfKwh  * 1000, 'selfKwh',   'selfUnit');
+        fmtEnergy(expKwh  * 1000, 'exportKwh', 'exportUnit');
+        fmtEnergy(selfKwh * 1000, 'selfKwh',   'selfUnit');
         calcROI(revenueILS, savingsILS, gridDate);
       }
 
@@ -1005,6 +1017,8 @@ async function loadData() {
 
     // Auto-load today's daily flow chart
     loadDailyFlow();
+    // Load top production days
+    loadTopDays(installDate);
 
   } catch (e) {
     showError(e.message);
@@ -1174,6 +1188,47 @@ window.onload = () => {
   if (API_KEY && SITE_ID) loadData();
 };
 
+async function loadTopDays(installDate) {
+  const el = document.getElementById('topDaysContent');
+  try {
+    const today = new Date();
+    // Fetch all daily energy from install date to today
+    const res = await fetch(
+      `${BASE}/site/${SITE_ID}/energy?timeUnit=DAY&startDate=${installDate}&endDate=${fmtDate(today)}&api_key=${API_KEY}`
+    );
+    const data = await res.json();
+    const values = (data.energy?.values || [])
+      .filter(v => v.value != null && v.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 3);
+
+    if (!values.length) {
+      el.textContent = 'אין נתונים';
+      return;
+    }
+
+    const medals = ['🥇', '🥈', '🥉'];
+    el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+      ${values.map((v, i) => {
+        const d = new Date(v.date);
+        const dateStr = d.toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' });
+        const kwh = Math.round(v.value / 100) / 10;
+        const colors = ['rgba(255,215,0,0.15)', 'rgba(192,192,192,0.15)', 'rgba(205,127,50,0.15)'];
+        const borders = ['rgba(255,215,0,0.4)', 'rgba(192,192,192,0.4)', 'rgba(205,127,50,0.4)'];
+        return `
+          <div style="background:${colors[i]};border:1px solid ${borders[i]};border-radius:12px;padding:1rem;text-align:center;">
+            <div style="font-size:28px;margin-bottom:6px;">${medals[i]}</div>
+            <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;color:var(--text);">${kwh}</div>
+            <div style="font-size:11px;color:var(--text2);margin:2px 0;">kWh</div>
+            <div style="font-size:13px;color:var(--text2);margin-top:6px;">${dateStr}</div>
+          </div>`;
+      }).join('')}
+    </div>`;
+  } catch(e) {
+    el.textContent = 'שגיאה בטעינה';
+  }
+}
+
 async function geocodeAddress() {
   const address = document.getElementById('addressInput').value.trim();
   const statusEl = document.getElementById('geoStatus');
@@ -1206,6 +1261,7 @@ async function geocodeAddress() {
 let peakChart = null;
 let dailyFlowChart = null;
 let washingChart = null;
+
 
 async function loadDailyFlow() {
   if (!API_KEY || !SITE_ID) return;
