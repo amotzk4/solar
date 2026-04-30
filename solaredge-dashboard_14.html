@@ -940,86 +940,42 @@ async function loadData() {
     const gridDate = GRID_DATE || '2025-11-01';
 
     try {
-      // Production before grid — all self-consumption, no selling
-      const prodBeforeRes = await fetch(
-        `${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${installDate}&endDate=${gridDate}&api_key=${API_KEY}`
-      );
-      const prodBeforeData = await prodBeforeRes.json();
-      const beforeKwh = (prodBeforeData.energy?.values || [])
+      // Simple approach: use energy endpoint for Production + SelfConsumption
+      // FeedIn (export) = Production - SelfConsumption
+      // Revenue = FeedIn × SELL_RATE
+      // Savings = SelfConsumption × BUY_RATE
+      const [prodAllRes, selfAllRes] = await Promise.all([
+        fetch(`${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${installDate}&endDate=${fmtDate(today)}&api_key=${API_KEY}`),
+        fetch(`${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${gridDate}&endDate=${fmtDate(today)}&meters=SelfConsumption&api_key=${API_KEY}`)
+      ]);
+      const prodAllData = await prodAllRes.json();
+      const selfAllData = await selfAllRes.json();
+
+      // Total production (Wh → kWh)
+      const totalProdKwh = (prodAllData.energy?.values || [])
         .reduce((s, v) => s + (v.value || 0), 0) / 1000;
 
-      // Build monthly chunks from gridDate to today
-      // Parse safely to avoid timezone issues (new Date('YYYY-MM-DD') is UTC midnight)
-      const [gy, gm, gd] = gridDate.split('-').map(Number);
-      const chunks = [];
-      let cy = gy, cm = gm;
-      while (new Date(cy, cm - 1, 1) <= today) {
-        const monthStart = new Date(cy, cm - 1, 1);
-        const monthEnd   = new Date(cy, cm, 0); // last day of month
-        chunks.push({ start: fmtDate(monthStart), end: fmtDate(monthEnd > today ? today : monthEnd) });
-        if (cm === 12) { cy++; cm = 1; } else { cm++; }
-      }
+      // Self consumption after grid connection
+      const totalSelfKwh = (selfAllData.energy?.values || [])
+        .reduce((s, v) => s + (v.value || 0), 0) / 1000;
 
-      // Use powerDetails per month — derive FeedIn = Production - SelfConsumption if needed
-      // Also fetch monthly production for derivation fallback
-      const monthProdRes = await fetch(
-        `${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${gridDate}&endDate=${fmtDate(today)}&api_key=${API_KEY}`
-      );
-      const monthProdData = await monthProdRes.json();
-      const monthProdMap = {};
-      (monthProdData.energy?.values||[]).forEach(v => { monthProdMap[v.date.substring(0,7)] = (v.value||0)/1000; });
+      // Export = Production (after grid) - SelfConsumption
+      const prodBeforeKwh = (prodAllData.energy?.values || [])
+        .filter(v => v.date.substring(0,7) < gridDate.substring(0,7))
+        .reduce((s, v) => s + (v.value || 0), 0) / 1000;
+      const prodAfterGridKwh = totalProdKwh - prodBeforeKwh;
+      const totalExportKwh = Math.max(0, prodAfterGridKwh - totalSelfKwh);
 
-      let totalExportKwh = 0, totalSelfConsKwh = 0;
-      for (const { start, end } of chunks) {
-        const month = start.substring(0,7);
-        try {
-          const r = await fetch(
-            `${BASE}/site/${SITE_ID}/powerDetails?startTime=${start}%2000:00:00&endTime=${end}%2023:59:59&api_key=${API_KEY}`
-          );
-          const d = await r.json();
-          const meters = d.powerDetails?.meters || [];
-          const feedInMeter = meters.find(m => m.type === 'FeedIn');
-          const selfMeter   = meters.find(m => m.type === 'SelfConsumption');
-          const prodMeter   = meters.find(m => m.type === 'Production');
+      // Self consumption includes before-grid production too
+      const totalSelfAllKwh = prodBeforeKwh + totalSelfKwh;
 
-          if (feedInMeter && (feedInMeter.values||[]).some(v => v.value > 0)) {
-            totalExportKwh   += (feedInMeter.values||[]).reduce((s,v) => s+(v.value||0)*0.25,0)/1000;
-            totalSelfConsKwh += selfMeter ? (selfMeter.values||[]).reduce((s,v) => s+(v.value||0)*0.25,0)/1000 : 0;
-          } else if (selfMeter && (selfMeter.values||[]).some(v => v.value > 0)) {
-            const sc = (selfMeter.values||[]).reduce((s,v) => s+(v.value||0)*0.25,0)/1000;
-            const prod = prodMeter
-              ? (prodMeter.values||[]).reduce((s,v) => s+(v.value||0)*0.25,0)/1000
-              : (monthProdMap[month] || 0);
-            totalSelfConsKwh += sc;
-            totalExportKwh   += Math.max(0, prod - sc);
-          }
-          await new Promise(res => setTimeout(res, 300));
-        } catch(e) { /* skip */ }
-      }
-
-      const totalSelfKwh = beforeKwh + totalSelfConsKwh;
-
-      if (totalExportKwh > 0 || totalSelfKwh > 0) {
-        const revenueILS = totalExportKwh * SELL_RATE / 100;
-        const savingsILS = totalSelfKwh * BUY_RATE / 100;
-        document.getElementById('revenue').textContent = fmt(revenueILS, 0);
-        document.getElementById('savings').textContent = fmt(savingsILS, 0);
-        fmtEnergy(totalExportKwh * 1000, 'exportKwh', 'exportUnit');
-        fmtEnergy(totalSelfKwh   * 1000, 'selfKwh',   'selfUnit');
-        calcROI(revenueILS, savingsILS, gridDate);
-      } else {
-        // Fallback — no meter data
-        const prodAfterKwh = lifeKwh - beforeKwh;
-        const expKwh  = prodAfterKwh * 0.79;
-        const selfKwh = beforeKwh + prodAfterKwh * 0.21;
-        const revenueILS = expKwh  * SELL_RATE / 100;
-        const savingsILS = selfKwh * BUY_RATE / 100;
-        document.getElementById('revenue').textContent = fmt(revenueILS, 0) + '~';
-        document.getElementById('savings').textContent = fmt(savingsILS, 0) + '~';
-        fmtEnergy(expKwh  * 1000, 'exportKwh', 'exportUnit');
-        fmtEnergy(selfKwh * 1000, 'selfKwh',   'selfUnit');
-        calcROI(revenueILS, savingsILS, gridDate);
-      }
+      const revenueILS = totalExportKwh * SELL_RATE / 100;
+      const savingsILS = totalSelfAllKwh * BUY_RATE / 100;
+      document.getElementById('revenue').textContent = fmt(revenueILS, 0);
+      document.getElementById('savings').textContent = fmt(savingsILS, 0);
+      fmtEnergy(totalExportKwh * 1000, 'exportKwh', 'exportUnit');
+      fmtEnergy(totalSelfAllKwh * 1000, 'selfKwh', 'selfUnit');
+      calcROI(revenueILS, savingsILS, gridDate);
 
     } catch(e) {
       console.error('energy calc error:', e);
@@ -1232,62 +1188,33 @@ async function loadMonthlyTable(installDate, gridDate) {
 
     // Fetch monthly FeedIn + SelfConsumption using timeFrameEnergy per month
     // (powerDetails only covers 30 days; timeFrameEnergy works for all history)
-    const [gy2, gm2] = gridDate.split('-').map(Number);
-    const chunks = [];
-    let cy2 = gy2, cm2 = gm2;
-    while (new Date(cy2, cm2 - 1, 1) <= today) {
-																					
-      const monthStart = new Date(cy2, cm2 - 1, 1);
-      const monthEnd   = new Date(cy2, cm2, 0);
-      chunks.push({
-        start: fmtDate(monthStart),
-        end:   fmtDate(monthEnd > today ? today : monthEnd),
-        month: fmtDate(monthStart).substring(0,7)
-      });
-      if (cm2 === 12) { cy2++; cm2 = 1; } else { cm2++; }
-    }
+    // Simple: fetch monthly SelfConsumption energy — FeedIn = Production - SelfConsumption
+    const selfMonthRes = await fetch(
+      `${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${gridDate}&endDate=${fmtDate(today)}&meters=SelfConsumption&api_key=${API_KEY}`
+    );
+    const selfMonthData = await selfMonthRes.json();
 
-    // Use powerDetails for SelfConsumption; derive FeedIn = production - selfConsumption
-    const monthData = {};
-    // First build production map per month
+    // Build selfConsumption map by month
+    const selfMap = {};
+    (selfMonthData.energy?.values || []).forEach(v => {
+      selfMap[v.date.substring(0,7)] = (v.value || 0) / 1000;
+    });
+
+    // Build production map by month
     const prodMap = {};
     prodValues.forEach(v => { prodMap[v.date.substring(0,7)] = (v.value||0)/1000; });
 
-    for (const { start, end, month } of chunks) {
-      try {
-        const r = await fetch(
-          `${BASE}/site/${SITE_ID}/powerDetails?startTime=${start}%2000:00:00&endTime=${end}%2023:59:59&api_key=${API_KEY}`
-        );
-        const d = await r.json();
-        const meters = d.powerDetails?.meters || [];
-        const feedInMeter = meters.find(m => m.type === 'FeedIn');
-        const selfMeter   = meters.find(m => m.type === 'SelfConsumption');
-        const prodMeter   = meters.find(m => m.type === 'Production');
-
-        let feedInKwh = 0, selfKwh = 0;
-
-        if (feedInMeter && (feedInMeter.values||[]).some(v => v.value > 0)) {
-          // FeedIn data available directly
-          feedInKwh = (feedInMeter.values||[]).reduce((s,v) => s+(v.value||0)*0.25,0)/1000;
-          selfKwh   = selfMeter ? (selfMeter.values||[]).reduce((s,v) => s+(v.value||0)*0.25,0)/1000 : 0;
-        } else if (selfMeter && (selfMeter.values||[]).some(v => v.value > 0)) {
-          // Derive FeedIn = Production - SelfConsumption
-          selfKwh = (selfMeter.values||[]).reduce((s,v) => s+(v.value||0)*0.25,0)/1000;
-          const prodKwh = prodMeter
-            ? (prodMeter.values||[]).reduce((s,v) => s+(v.value||0)*0.25,0)/1000
-            : (prodMap[month] || 0);
-          feedInKwh = Math.max(0, prodKwh - selfKwh);
-        } else {
-          // No meter data — estimate from production using daily flow ratio
-          // fallback: skip (will show 0)
-        }
-
-        monthData[month] = { feedInKwh, selfKwh };
-        await new Promise(res => setTimeout(res, 300));
-      } catch(e) {
-        monthData[month] = { feedInKwh: 0, selfKwh: 0 };
-      }
-    }
+    // monthData: feedIn = prod - self, selfKwh = self
+    const monthData = {};
+    Object.keys(prodMap).forEach(month => {
+      if (month < gridDate.substring(0,7)) return; // before grid
+      const prodKwh = prodMap[month] || 0;
+      const selfKwh = selfMap[month] || 0;
+      monthData[month] = {
+        feedInKwh: Math.max(0, prodKwh - selfKwh),
+        selfKwh
+      };
+    });
 
     // Build table rows
     let totalRevenue = 0, totalSavings = 0, totalProd = 0;
