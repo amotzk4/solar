@@ -940,35 +940,48 @@ async function loadData() {
     const gridDate = GRID_DATE || '2025-11-01';
 
     try {
-      // Simple approach: use energy endpoint for Production + SelfConsumption
-      // FeedIn (export) = Production - SelfConsumption
-      // Revenue = FeedIn × SELL_RATE
-      // Savings = SelfConsumption × BUY_RATE
-      const [prodAllRes, selfAllRes] = await Promise.all([
-        fetch(`${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${installDate}&endDate=${fmtDate(today)}&api_key=${API_KEY}`),
-        fetch(`${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${gridDate}&endDate=${fmtDate(today)}&meters=SelfConsumption&api_key=${API_KEY}`)
-      ]);
+      // Fetch production for full period + powerDetails per month for SC
+      const prodAllRes = await fetch(
+        `${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${installDate}&endDate=${fmtDate(today)}&api_key=${API_KEY}`
+      );
       const prodAllData = await prodAllRes.json();
-      const selfAllData = await selfAllRes.json();
+      const prodValues2 = prodAllData.energy?.values || [];
 
-      // Total production (Wh → kWh)
-      const totalProdKwh = (prodAllData.energy?.values || [])
-        .reduce((s, v) => s + (v.value || 0), 0) / 1000;
-
-      // Self consumption after grid connection
-      const totalSelfKwh = (selfAllData.energy?.values || [])
-        .reduce((s, v) => s + (v.value || 0), 0) / 1000;
-
-      // Export = Production (after grid) - SelfConsumption
-      const prodBeforeKwh = (prodAllData.energy?.values || [])
+      const prodBeforeKwh = prodValues2
         .filter(v => v.date.substring(0,7) < gridDate.substring(0,7))
-        .reduce((s, v) => s + (v.value || 0), 0) / 1000;
-      const prodAfterGridKwh = totalProdKwh - prodBeforeKwh;
-      const totalExportKwh = Math.max(0, prodAfterGridKwh - totalSelfKwh);
+        .reduce((s,v) => s+(v.value||0),0) / 1000;
 
-      // Self consumption includes before-grid production too
-      const totalSelfAllKwh = prodBeforeKwh + totalSelfKwh;
+      const gridYM = gridDate.substring(0,7);
+      const monthsAfter = prodValues2.filter(v => v.date.substring(0,7) >= gridYM);
 
+      let totalExportKwh = 0, totalSelfConsKwh = 0;
+      for (const pv of monthsAfter) {
+        const month = pv.date.substring(0,7);
+        const [my, mm] = month.split('-').map(Number);
+        const startStr = `${month}-01`;
+        const lastDay = new Date(my, mm, 0).getDate();
+        const endDt = new Date(my, mm-1, lastDay);
+        const endStr = fmtDate(endDt > today ? today : endDt);
+        try {
+          const r = await fetch(
+            `${BASE}/site/${SITE_ID}/powerDetails?startTime=${startStr}%2000:00:00&endTime=${endStr}%2023:59:59&api_key=${API_KEY}`
+          );
+          const d = await r.json();
+          const meters = d.powerDetails?.meters || [];
+          const selfMeter   = meters.find(m => m.type === 'SelfConsumption');
+          const feedInMeter = meters.find(m => m.type === 'FeedIn');
+          const prodKwh = (pv.value||0)/1000;
+          const sc = selfMeter ? (selfMeter.values||[]).reduce((s,v)=>s+(v.value||0)*0.25,0)/1000 : 0;
+          const fi = feedInMeter && (feedInMeter.values||[]).some(v=>v.value>0)
+            ? (feedInMeter.values||[]).reduce((s,v)=>s+(v.value||0)*0.25,0)/1000
+            : Math.max(0, prodKwh - sc);
+          totalSelfConsKwh += sc;
+          totalExportKwh   += fi;
+          await new Promise(res => setTimeout(res, 300));
+        } catch(e) {}
+      }
+
+      const totalSelfAllKwh = prodBeforeKwh + totalSelfConsKwh;
       const revenueILS = totalExportKwh * SELL_RATE / 100;
       const savingsILS = totalSelfAllKwh * BUY_RATE / 100;
       document.getElementById('revenue').textContent = fmt(revenueILS, 0);
@@ -1188,36 +1201,42 @@ async function loadMonthlyTable(installDate, gridDate) {
 
     // Fetch monthly FeedIn + SelfConsumption using timeFrameEnergy per month
     // (powerDetails only covers 30 days; timeFrameEnergy works for all history)
-    // Simple: fetch monthly SelfConsumption energy — FeedIn = Production - SelfConsumption
-    const selfMonthRes = await fetch(
-      `${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${gridDate}&endDate=${fmtDate(today)}&meters=SelfConsumption&api_key=${API_KEY}`
-    );
-    const selfMonthData = await selfMonthRes.json();
-
-    // Build selfConsumption map by month
-    const selfMap = {};
-    (selfMonthData.energy?.values || []).forEach(v => {
-      selfMap[v.date.substring(0,7)] = (v.value || 0) / 1000;
-    });
-
-    // Build production map by month
+    // Fetch SelfConsumption per month using powerDetails (correct date format: YYYY-MM-01 to YYYY-MM-DD)
     const prodMap = {};
     prodValues.forEach(v => { prodMap[v.date.substring(0,7)] = (v.value||0)/1000; });
 
-    // monthData: feedIn = prod - self, selfKwh = self
     const monthData = {};
-    Object.keys(prodMap).forEach(month => {
-      if (month < gridDate.substring(0,7)) return; // before grid
-      const prodKwh = prodMap[month] || 0;
-      const selfKwh = selfMap[month] || 0;
-      monthData[month] = {
-        feedInKwh: Math.max(0, prodKwh - selfKwh),
-        selfKwh
-      };
-    });
+    const gridYM = gridDate.substring(0,7);
+    const monthsToFetch = Object.keys(prodMap).filter(m => m >= gridYM);
+
+    for (const month of monthsToFetch) {
+      const [my, mm] = month.split('-').map(Number);
+      const startStr = `${month}-01`;
+      const lastDay = new Date(my, mm, 0).getDate();
+      const endDt = new Date(my, mm - 1, lastDay);
+      const endStr = fmtDate(endDt > today ? today : endDt);
+      try {
+        const r = await fetch(
+          `${BASE}/site/${SITE_ID}/powerDetails?startTime=${startStr}%2000:00:00&endTime=${endStr}%2023:59:59&api_key=${API_KEY}`
+        );
+        const d = await r.json();
+        const meters = d.powerDetails?.meters || [];
+        const selfMeter = meters.find(m => m.type === 'SelfConsumption');
+        const feedInMeter = meters.find(m => m.type === 'FeedIn');
+        const prodMeter  = meters.find(m => m.type === 'Production');
+        const selfKwh = selfMeter ? (selfMeter.values||[]).reduce((s,v)=>s+(v.value||0)*0.25,0)/1000 : 0;
+        const feedInKwh = feedInMeter && (feedInMeter.values||[]).some(v=>v.value>0)
+          ? (feedInMeter.values||[]).reduce((s,v)=>s+(v.value||0)*0.25,0)/1000
+          : Math.max(0, (prodMap[month]||0) - selfKwh);
+        monthData[month] = { feedInKwh, selfKwh };
+        await new Promise(res => setTimeout(res, 300));
+      } catch(e) {
+        monthData[month] = { feedInKwh: 0, selfKwh: 0 };
+      }
+    }
 
     // Build table rows
-    let totalRevenue = 0, totalSavings = 0, totalProd = 0;
+    let totalRevenue = 0, totalSavings = 0, totalProd = 0, totalSelf = 0;
     const rows = prodValues.map(v => {
       const month = v.date.substring(0,7);
       const d = new Date(v.date);
@@ -1238,8 +1257,10 @@ async function loadMonthlyTable(installDate, gridDate) {
       totalRevenue += revenueILS;
       totalSavings += savingsILS;
       totalProd    += prodKwh;
+      totalSelf    += isBeforeGrid ? prodKwh : (md.selfKwh || 0);
 
-      return { monthLabel, prodKwh, revenueILS, savingsILS, totalILS, isBeforeGrid };
+      const selfKwh = md.selfKwh || 0;
+      return { monthLabel, prodKwh, revenueILS, savingsILS, totalILS, isBeforeGrid, selfKwh };
     }).reverse(); // newest first
 
     const tableRows = rows.map(r => `
@@ -1247,6 +1268,7 @@ async function loadMonthlyTable(installDate, gridDate) {
         <td style="padding:10px 12px;color:var(--text);">${r.monthLabel}</td>
         <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);color:var(--text2);">${fmt(r.prodKwh,1)} kWh</td>
         <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);color:var(--accent);">${r.revenueILS > 0 ? fmt(r.revenueILS,0)+' ₪' : r.isBeforeGrid ? '<span style="color:var(--text2);font-size:11px;">לפני חיבור</span>' : '—'}</td>
+        <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);color:#a78bfa;">${r.selfKwh > 0 ? fmt(r.selfKwh,1)+' kWh' : r.isBeforeGrid ? fmt(r.prodKwh,1)+' kWh' : '—'}</td>
         <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);color:var(--accent2);">${r.savingsILS > 0 ? fmt(r.savingsILS,0)+' ₪' : '—'}</td>
         <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);font-weight:700;color:var(--text);">${fmt(r.totalILS,0)} ₪</td>
       </tr>`).join('');
@@ -1259,6 +1281,7 @@ async function loadMonthlyTable(installDate, gridDate) {
               <th style="padding:8px 12px;text-align:right;color:var(--text2);font-weight:500;">חודש</th>
               <th style="padding:8px 12px;text-align:left;color:var(--text2);font-weight:500;">ייצור</th>
               <th style="padding:8px 12px;text-align:left;color:var(--accent);font-weight:500;">הכנסה ממכירה</th>
+              <th style="padding:8px 12px;text-align:left;color:#a78bfa;font-weight:500;">צריכה עצמית</th>
               <th style="padding:8px 12px;text-align:left;color:var(--accent2);font-weight:500;">חיסכון</th>
               <th style="padding:8px 12px;text-align:left;color:var(--text);font-weight:500;">סה"כ</th>
             </tr>
@@ -1269,6 +1292,7 @@ async function loadMonthlyTable(installDate, gridDate) {
               <td style="padding:10px 12px;font-weight:700;color:var(--text);">סה"כ</td>
               <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);font-weight:700;">${fmt(totalProd,1)} kWh</td>
               <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);font-weight:700;color:var(--accent);">${fmt(totalRevenue,0)} ₪</td>
+              <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);font-weight:700;color:#a78bfa;">${fmt(totalSelf,1)} kWh</td>
               <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);font-weight:700;color:var(--accent2);">${fmt(totalSavings,0)} ₪</td>
               <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);font-weight:700;color:var(--text);">${fmt(totalRevenue+totalSavings,0)} ₪</td>
             </tr>
