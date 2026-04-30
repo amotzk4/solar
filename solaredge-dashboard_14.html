@@ -949,13 +949,15 @@ async function loadData() {
         .reduce((s, v) => s + (v.value || 0), 0) / 1000;
 
       // Build monthly chunks from gridDate to today
+      // Parse safely to avoid timezone issues (new Date('YYYY-MM-DD') is UTC midnight)
+      const [gy, gm, gd] = gridDate.split('-').map(Number);
       const chunks = [];
-      let cursor = new Date(gridDate);
-      while (cursor <= today) {
-        const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-        const monthEnd   = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
+      let cy = gy, cm = gm;
+      while (new Date(cy, cm - 1, 1) <= today) {
+        const monthStart = new Date(cy, cm - 1, 1);
+        const monthEnd   = new Date(cy, cm, 0); // last day of month
         chunks.push({ start: fmtDate(monthStart), end: fmtDate(monthEnd > today ? today : monthEnd) });
-        cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+        if (cm === 12) { cy++; cm = 1; } else { cm++; }
       }
 
       // Use powerDetails per month — derive FeedIn = Production - SelfConsumption if needed
@@ -1230,18 +1232,18 @@ async function loadMonthlyTable(installDate, gridDate) {
 
     // Fetch monthly FeedIn + SelfConsumption using timeFrameEnergy per month
     // (powerDetails only covers 30 days; timeFrameEnergy works for all history)
+    const [gy2, gm2] = gridDate.split('-').map(Number);
     const chunks = [];
-    let cursor = new Date(gridDate);
-    while (cursor <= today) {
-      // Always start from 1st of month, end on last day — max 30 days per request
-      const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-      const monthEnd   = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0); // last day
+    let cy2 = gy2, cm2 = gm2;
+    while (new Date(cy2, cm2 - 1, 1) <= today) {
+      const monthStart = new Date(cy2, cm2 - 1, 1);
+      const monthEnd   = new Date(cy2, cm2, 0);
       chunks.push({
         start: fmtDate(monthStart),
         end:   fmtDate(monthEnd > today ? today : monthEnd),
         month: fmtDate(monthStart).substring(0,7)
       });
-      cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+      if (cm2 === 12) { cy2++; cm2 = 1; } else { cm2++; }
     }
 
     // Use powerDetails for SelfConsumption; derive FeedIn = production - selfConsumption
