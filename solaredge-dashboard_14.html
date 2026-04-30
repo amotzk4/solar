@@ -1,3 +1,4 @@
+/* ai */
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
@@ -1236,6 +1237,7 @@ async function loadMonthlyTable(installDate, gridDate) {
     const chunks = [];
     let cy2 = gy2, cm2 = gm2;
     while (new Date(cy2, cm2 - 1, 1) <= today) {
+																					
       const monthStart = new Date(cy2, cm2 - 1, 1);
       const monthEnd   = new Date(cy2, cm2, 0);
       chunks.push({
