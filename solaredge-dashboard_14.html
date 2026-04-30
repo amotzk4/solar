@@ -1227,6 +1227,7 @@ async function loadMonthlyTable(installDate, gridDate) {
           `${BASE}/site/${SITE_ID}/timeFrameEnergy?startDate=${start}&endDate=${end}&api_key=${API_KEY}`
         );
         const d = await r.json();
+        console.log('TFE', month, r.status, JSON.stringify(d).substring(0, 400));
         // timeFrameEnergy returns { timeFrameEnergy: { unit, measuredBy, feedInEnergy, consumedEnergy, selfConsumptionForSelfUse } }
         const tfe = d.timeFrameEnergy || {};
         // values are in Wh
