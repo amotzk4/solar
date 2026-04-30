@@ -1225,13 +1225,13 @@ async function loadMonthlyTable(installDate, gridDate) {
           `${BASE}/site/${SITE_ID}/powerDetails?startTime=${start}%2000:00:00&endTime=${end}%2023:59:59&api_key=${API_KEY}`
         );
         const d = await r.json();
+        console.log(`powerDetails ${month} (${r.status}):`, JSON.stringify(d).substring(0,300));
         const meters = d.powerDetails?.meters || [];
         const feedIn = meters.find(m => m.type === 'FeedIn');
         const self   = meters.find(m => m.type === 'SelfConsumption');
         const feedInKwh = feedIn ? (feedIn.values||[]).reduce((s,v) => s+(v.value||0)*0.25,0)/1000 : 0;
         const selfKwh   = self   ? (self.values  ||[]).reduce((s,v) => s+(v.value||0)*0.25,0)/1000 : 0;
         monthData[month] = { feedInKwh, selfKwh };
-        // Small delay to avoid rate limiting
         await new Promise(res => setTimeout(res, 300));
       } catch(e) {}
     }
