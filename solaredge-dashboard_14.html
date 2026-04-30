@@ -651,6 +651,12 @@
       <div style="margin-top:8px;font-size:12px;color:var(--text2);" id="breakevenDate"></div>
     </div>
 
+    <!-- Monthly breakdown table -->
+    <div class="chart-card" style="margin-bottom:2rem;">
+      <div class="chart-title">📊 הכנסה + חיסכון לפי חודש</div>
+      <div id="monthlyTableContent" style="font-size:13px;color:var(--text2);">טוען...</div>
+    </div>
+
     <!-- Charts -->
     <!-- Daily power flow chart (like monitoring portal) -->
     <div class="chart-card" style="margin-bottom:12px;">
@@ -1019,6 +1025,8 @@ async function loadData() {
     loadDailyFlow();
     // Load top production days
     loadTopDays(installDate);
+    // Load monthly breakdown table
+    loadMonthlyTable(installDate, gridDate);
 
   } catch (e) {
     showError(e.message);
@@ -1187,6 +1195,109 @@ window.onload = () => {
   document.getElementById('dailyFlowDate').value = fmtDate(new Date());
   if (API_KEY && SITE_ID) loadData();
 };
+
+async function loadMonthlyTable(installDate, gridDate) {
+  const el = document.getElementById('monthlyTableContent');
+  try {
+    const today = new Date();
+
+    // Fetch monthly production from install date
+    const prodRes = await fetch(
+      `${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${installDate}&endDate=${fmtDate(today)}&api_key=${API_KEY}`
+    );
+    const prodData = await prodRes.json();
+    const prodValues = prodData.energy?.values || [];
+
+    // Fetch monthly powerDetails (FeedIn + SelfConsumption) from grid date
+    const chunks = [];
+    let cursor = new Date(gridDate);
+    while (cursor <= today) {
+      const chunkEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
+      chunks.push({ start: fmtDate(cursor), end: fmtDate(chunkEnd > today ? today : chunkEnd), month: fmtDate(cursor).substring(0,7) });
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    }
+
+    // FeedIn & SelfConsumption per month
+    const monthData = {};
+    await Promise.all(chunks.map(async ({ start, end, month }) => {
+      try {
+        const r = await fetch(
+          `${BASE}/site/${SITE_ID}/powerDetails?startTime=${start}%2000:00:00&endTime=${end}%2023:59:59&api_key=${API_KEY}`
+        );
+        const d = await r.json();
+        const meters = d.powerDetails?.meters || [];
+        const feedIn = meters.find(m => m.type === 'FeedIn');
+        const self   = meters.find(m => m.type === 'SelfConsumption');
+        const feedInKwh = feedIn ? (feedIn.values||[]).reduce((s,v) => s+(v.value||0)*0.25,0)/1000 : 0;
+        const selfKwh   = self   ? (self.values  ||[]).reduce((s,v) => s+(v.value||0)*0.25,0)/1000 : 0;
+        monthData[month] = { feedInKwh, selfKwh };
+      } catch(e) {}
+    }));
+
+    // Build table rows
+    let totalRevenue = 0, totalSavings = 0, totalProd = 0;
+    const rows = prodValues.map(v => {
+      const month = v.date.substring(0,7);
+      const d = new Date(v.date);
+      const monthLabel = d.toLocaleString('he-IL', { month: 'long', year: 'numeric' });
+      const prodKwh = (v.value || 0) / 1000;
+      const isBeforeGrid = month < gridDate.substring(0,7);
+      const md = monthData[month] || { feedInKwh: 0, selfKwh: 0 };
+
+      let revenueILS = 0, savingsILS = 0;
+      if (isBeforeGrid) {
+        // Before grid: all production = self-consumption
+        savingsILS = prodKwh * BUY_RATE / 100;
+      } else {
+        revenueILS = md.feedInKwh * SELL_RATE / 100;
+        savingsILS = md.selfKwh   * BUY_RATE  / 100;
+      }
+      const totalILS = revenueILS + savingsILS;
+      totalRevenue += revenueILS;
+      totalSavings += savingsILS;
+      totalProd    += prodKwh;
+
+      return { monthLabel, prodKwh, revenueILS, savingsILS, totalILS, isBeforeGrid };
+    }).reverse(); // newest first
+
+    const tableRows = rows.map(r => `
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:10px 12px;color:var(--text);">${r.monthLabel}</td>
+        <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);color:var(--text2);">${fmt(r.prodKwh,1)} kWh</td>
+        <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);color:var(--accent);">${r.revenueILS > 0 ? fmt(r.revenueILS,0)+' ₪' : r.isBeforeGrid ? '<span style="color:var(--text2);font-size:11px;">לפני חיבור</span>' : '—'}</td>
+        <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);color:var(--accent2);">${r.savingsILS > 0 ? fmt(r.savingsILS,0)+' ₪' : '—'}</td>
+        <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);font-weight:700;color:var(--text);">${fmt(r.totalILS,0)} ₪</td>
+      </tr>`).join('');
+
+    el.innerHTML = `
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="border-bottom:2px solid var(--border);">
+              <th style="padding:8px 12px;text-align:right;color:var(--text2);font-weight:500;">חודש</th>
+              <th style="padding:8px 12px;text-align:left;color:var(--text2);font-weight:500;">ייצור</th>
+              <th style="padding:8px 12px;text-align:left;color:var(--accent);font-weight:500;">הכנסה ממכירה</th>
+              <th style="padding:8px 12px;text-align:left;color:var(--accent2);font-weight:500;">חיסכון</th>
+              <th style="padding:8px 12px;text-align:left;color:var(--text);font-weight:500;">סה"כ</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+          <tfoot>
+            <tr style="border-top:2px solid var(--border);background:rgba(255,255,255,0.03);">
+              <td style="padding:10px 12px;font-weight:700;color:var(--text);">סה"כ</td>
+              <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);font-weight:700;">${fmt(totalProd,1)} kWh</td>
+              <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);font-weight:700;color:var(--accent);">${fmt(totalRevenue,0)} ₪</td>
+              <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);font-weight:700;color:var(--accent2);">${fmt(totalSavings,0)} ₪</td>
+              <td style="padding:10px 12px;text-align:left;font-family:var(--font-mono);font-weight:700;color:var(--text);">${fmt(totalRevenue+totalSavings,0)} ₪</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`;
+  } catch(e) {
+    el.textContent = 'שגיאה בטעינה';
+    console.error(e);
+  }
+}
 
 async function loadTopDays(installDate) {
   const el = document.getElementById('topDaysContent');
