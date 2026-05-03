@@ -961,9 +961,21 @@ async function loadData() {
       let totalExportKwh = 0, totalSelfConsKwh = 0;
 
       if (feedInMeter || selfMeter) {
-        // energyDetails available — use directly
-        totalExportKwh   = (feedInMeter?.values||[]).reduce((s,v)=>s+(v.value||0),0)/1000;
-        totalSelfConsKwh = (selfMeter?.values||[]).reduce((s,v)=>s+(v.value||0),0)/1000;
+        // energyDetails available
+        totalExportKwh = (feedInMeter?.values||[]).reduce((s,v)=>s+(v.value||0),0)/1000;
+        if (selfMeter) {
+          totalSelfConsKwh = (selfMeter.values||[]).reduce((s,v)=>s+(v.value||0),0)/1000;
+        } else if (prodMeter) {
+          // Derive: SelfConsumption = Production - FeedIn
+          const prodAfterKwh = (prodMeter.values||[]).reduce((s,v)=>s+(v.value||0),0)/1000;
+          totalSelfConsKwh = Math.max(0, prodAfterKwh - totalExportKwh);
+        } else {
+          // Use monthly energy totals for production
+          const prodAfterKwh = (prodAllData.energy?.values||[])
+            .filter(v => v.date.substring(0,7) >= gridDate.substring(0,7))
+            .reduce((s,v)=>s+(v.value||0),0)/1000;
+          totalSelfConsKwh = Math.max(0, prodAfterKwh - totalExportKwh);
+        }
       } else {
         // fallback: powerDetails monthly loop
         const prodValues2 = prodAllData.energy?.values||[];
@@ -1233,8 +1245,13 @@ async function loadMonthlyTable(installDate, gridDate) {
       (prodMeter?.values||[]).forEach(v =>   { prodEdMap[v.date.substring(0,7)] = (v.value||0)/1000; });
 
       Object.keys(prodMap).filter(m => m >= gridDate.substring(0,7)).forEach(month => {
-        const selfKwh   = selfMap[month]   || 0;
-        const feedInKwh = feedInMap[month] || Math.max(0, (prodMap[month]||0) - selfKwh);
+        const feedInKwh = feedInMap[month] || 0;
+        let selfKwh = selfMap[month] || 0;
+        if (!selfKwh) {
+          // Derive from production meter or monthly production
+          const prodKwh = prodEdMap[month] || prodMap[month] || 0;
+          selfKwh = Math.max(0, prodKwh - feedInKwh);
+        }
         monthData[month] = { feedInKwh, selfKwh };
       });
     } catch(e) {
