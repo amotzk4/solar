@@ -941,44 +941,54 @@ async function loadData() {
 
     try {
       // Fetch production for full period + powerDetails per month for SC
-      const prodAllRes = await fetch(
-        `${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${installDate}&endDate=${fmtDate(today)}&api_key=${API_KEY}`
-      );
+      // energyDetails MONTH — one request, full history, no 30-day limit
+      const [prodAllRes, edAllRes] = await Promise.all([
+        fetch(`${BASE}/site/${SITE_ID}/energy?timeUnit=MONTH&startDate=${installDate}&endDate=${fmtDate(today)}&api_key=${API_KEY}`),
+        fetch(`${BASE}/site/${SITE_ID}/energyDetails?timeUnit=MONTH&startDate=${gridDate}&endDate=${fmtDate(today)}&api_key=${API_KEY}`)
+      ]);
       const prodAllData = await prodAllRes.json();
-      const prodValues2 = prodAllData.energy?.values || [];
+      const edAllData   = await edAllRes.json();
 
-      const prodBeforeKwh = prodValues2
+      const prodBeforeKwh = (prodAllData.energy?.values||[])
         .filter(v => v.date.substring(0,7) < gridDate.substring(0,7))
         .reduce((s,v) => s+(v.value||0),0) / 1000;
 
-      const gridYM = gridDate.substring(0,7);
-      const monthsAfter = prodValues2.filter(v => v.date.substring(0,7) >= gridYM);
+      const meters = edAllData.energyDetails?.meters || [];
+      const feedInMeter = meters.find(m => m.type === 'FeedIn');
+      const selfMeter   = meters.find(m => m.type === 'SelfConsumption');
+      const prodMeter   = meters.find(m => m.type === 'Production');
 
       let totalExportKwh = 0, totalSelfConsKwh = 0;
-      for (const pv of monthsAfter) {
-        const month = pv.date.substring(0,7);
-        const [my, mm] = month.split('-').map(Number);
-        const startStr = `${month}-01`;
-        const lastDay = new Date(my, mm, 0).getDate();
-        const endDt = new Date(my, mm-1, lastDay);
-        const endStr = fmtDate(endDt > today ? today : endDt);
-        try {
-          const r = await fetch(
-            `${BASE}/site/${SITE_ID}/powerDetails?startTime=${startStr}%2000:00:00&endTime=${endStr}%2023:59:59&api_key=${API_KEY}`
-          );
-          const d = await r.json();
-          const meters = d.powerDetails?.meters || [];
-          const selfMeter   = meters.find(m => m.type === 'SelfConsumption');
-          const feedInMeter = meters.find(m => m.type === 'FeedIn');
-          const prodKwh = (pv.value||0)/1000;
-          const sc = selfMeter ? (selfMeter.values||[]).reduce((s,v)=>s+(v.value||0)*0.25,0)/1000 : 0;
-          const fi = feedInMeter && (feedInMeter.values||[]).some(v=>v.value>0)
-            ? (feedInMeter.values||[]).reduce((s,v)=>s+(v.value||0)*0.25,0)/1000
-            : Math.max(0, prodKwh - sc);
-          totalSelfConsKwh += sc;
-          totalExportKwh   += fi;
-          await new Promise(res => setTimeout(res, 300));
-        } catch(e) {}
+
+      if (feedInMeter || selfMeter) {
+        // energyDetails available — use directly
+        totalExportKwh   = (feedInMeter?.values||[]).reduce((s,v)=>s+(v.value||0),0)/1000;
+        totalSelfConsKwh = (selfMeter?.values||[]).reduce((s,v)=>s+(v.value||0),0)/1000;
+      } else {
+        // fallback: powerDetails monthly loop
+        const prodValues2 = prodAllData.energy?.values||[];
+        for (const pv of prodValues2.filter(v => v.date.substring(0,7) >= gridDate.substring(0,7))) {
+          const month = pv.date.substring(0,7);
+          const [my, mm] = month.split('-').map(Number);
+          const startStr = `${month}-01`;
+          const endDt = new Date(my, mm, 0);
+          const endStr = fmtDate(endDt > today ? today : endDt);
+          try {
+            const r = await fetch(`${BASE}/site/${SITE_ID}/powerDetails?startTime=${startStr}%2000:00:00&endTime=${endStr}%2023:59:59&api_key=${API_KEY}`);
+            const d = await r.json();
+            const ms = d.powerDetails?.meters || [];
+            const sm = ms.find(m=>m.type==='SelfConsumption');
+            const fm = ms.find(m=>m.type==='FeedIn');
+            const prodKwh = (pv.value||0)/1000;
+            const sc = sm ? (sm.values||[]).reduce((s,v)=>s+(v.value||0)*0.25,0)/1000 : 0;
+            const fi = fm && (fm.values||[]).some(v=>v.value>0)
+              ? (fm.values||[]).reduce((s,v)=>s+(v.value||0)*0.25,0)/1000
+              : Math.max(0, prodKwh - sc);
+            totalSelfConsKwh += sc;
+            totalExportKwh   += fi;
+            await new Promise(res => setTimeout(res, 300));
+          } catch(e) {}
+        }
       }
 
       const totalSelfAllKwh = prodBeforeKwh + totalSelfConsKwh;
@@ -1201,38 +1211,35 @@ async function loadMonthlyTable(installDate, gridDate) {
 
     // Fetch monthly FeedIn + SelfConsumption using timeFrameEnergy per month
     // (powerDetails only covers 30 days; timeFrameEnergy works for all history)
-    // Fetch SelfConsumption per month using powerDetails (correct date format: YYYY-MM-01 to YYYY-MM-DD)
+    // Use energyDetails with MONTH timeUnit — single request for all history
     const prodMap = {};
     prodValues.forEach(v => { prodMap[v.date.substring(0,7)] = (v.value||0)/1000; });
 
     const monthData = {};
-    const gridYM = gridDate.substring(0,7);
-    const monthsToFetch = Object.keys(prodMap).filter(m => m >= gridYM);
+    try {
+      const edRes = await fetch(
+        `${BASE}/site/${SITE_ID}/energyDetails?timeUnit=MONTH&startDate=${gridDate}&endDate=${fmtDate(today)}&api_key=${API_KEY}`
+      );
+      const edData = await edRes.json();
+      const meters = edData.energyDetails?.meters || [];
+      const feedInMeter = meters.find(m => m.type === 'FeedIn');
+      const selfMeter   = meters.find(m => m.type === 'SelfConsumption');
+      const prodMeter   = meters.find(m => m.type === 'Production');
 
-    for (const month of monthsToFetch) {
-      const [my, mm] = month.split('-').map(Number);
-      const startStr = `${month}-01`;
-      const lastDay = new Date(my, mm, 0).getDate();
-      const endDt = new Date(my, mm - 1, lastDay);
-      const endStr = fmtDate(endDt > today ? today : endDt);
-      try {
-        const r = await fetch(
-          `${BASE}/site/${SITE_ID}/powerDetails?startTime=${startStr}%2000:00:00&endTime=${endStr}%2023:59:59&api_key=${API_KEY}`
-        );
-        const d = await r.json();
-        const meters = d.powerDetails?.meters || [];
-        const selfMeter = meters.find(m => m.type === 'SelfConsumption');
-        const feedInMeter = meters.find(m => m.type === 'FeedIn');
-        const prodMeter  = meters.find(m => m.type === 'Production');
-        const selfKwh = selfMeter ? (selfMeter.values||[]).reduce((s,v)=>s+(v.value||0)*0.25,0)/1000 : 0;
-        const feedInKwh = feedInMeter && (feedInMeter.values||[]).some(v=>v.value>0)
-          ? (feedInMeter.values||[]).reduce((s,v)=>s+(v.value||0)*0.25,0)/1000
-          : Math.max(0, (prodMap[month]||0) - selfKwh);
+      // Build per-month maps
+      const feedInMap = {}, selfMap = {}, prodEdMap = {};
+      (feedInMeter?.values||[]).forEach(v => { feedInMap[v.date.substring(0,7)] = (v.value||0)/1000; });
+      (selfMeter?.values||[]).forEach(v =>   { selfMap[v.date.substring(0,7)]   = (v.value||0)/1000; });
+      (prodMeter?.values||[]).forEach(v =>   { prodEdMap[v.date.substring(0,7)] = (v.value||0)/1000; });
+
+      Object.keys(prodMap).filter(m => m >= gridDate.substring(0,7)).forEach(month => {
+        const selfKwh   = selfMap[month]   || 0;
+        const feedInKwh = feedInMap[month] || Math.max(0, (prodMap[month]||0) - selfKwh);
         monthData[month] = { feedInKwh, selfKwh };
-        await new Promise(res => setTimeout(res, 300));
-      } catch(e) {
-        monthData[month] = { feedInKwh: 0, selfKwh: 0 };
-      }
+      });
+    } catch(e) {
+      // fallback: leave monthData empty → shows 0
+      console.error('energyDetails error:', e);
     }
 
     // Build table rows
