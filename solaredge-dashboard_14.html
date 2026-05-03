@@ -948,6 +948,7 @@ async function loadData() {
       ]);
       const prodAllData = await prodAllRes.json();
       const edAllData   = await edAllRes.json();
+      console.log('energyDetails meters:', (edAllData.energyDetails?.meters||[]).map(m=>({type:m.type, vals: (m.values||[]).slice(0,2)})));
 
       const prodBeforeKwh = (prodAllData.energy?.values||[])
         .filter(v => v.date.substring(0,7) < gridDate.substring(0,7))
